@@ -6,6 +6,7 @@
   "description": "手機優先、規則式時間解析的本機語音待辦提醒 App",
   "scripts": {
     "start": "node server.js",
+    "build": "node scripts/build.js",
     "test": "node --test tests/*.test.js"
   }
 }
