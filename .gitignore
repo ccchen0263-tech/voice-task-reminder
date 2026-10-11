@@ -1,0 +1,11 @@
+# Dependencies and generated output
+node_modules/
+dist/
+*.zip
+
+# Local credentials and hosting metadata
+.env
+.env.local
+.env.*
+.vercel/
+.secrets

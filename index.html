@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6355d8">
+  <meta name="description" content="用語音或文字記下任務，自動解析台灣口語時間，加入你的行事曆。">
+  <title>AI 語音待辦提醒系統</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%236355d8'/%3E%3Cpath d='m17 33 10 10 21-24' fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div class="brand-symbol" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="3" width="7" height="12" rx="3.5"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/></svg>
+      </div>
+      <div class="header-copy"><h1>AI 語音待辦提醒系統</h1><p id="today-label"></p></div>
+    </header>
+
+    <section class="composer" aria-labelledby="composer-title">
+      <div class="composer-heading"><h2 id="composer-title">記下下一件事</h2><span class="local-note"><span class="status-dot" aria-hidden="true"></span>本機儲存</span></div>
+      <form id="task-form">
+        <label for="task-input" class="sr-only">待辦事項</label>
+        <div class="input-row">
+          <textarea id="task-input" placeholder="請輸入待辦事項" rows="2" maxlength="1000" aria-describedby="input-hint" required></textarea>
+          <button id="voice-button" class="button voice-button" type="button" aria-pressed="false">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/></svg>
+            <span id="voice-label">語音輸入</span>
+          </button>
+        </div>
+        <p id="input-hint" class="hint">說出時間與待辦事項；也可使用 iPhone 鍵盤上的麥克風。</p>
+        <p id="speech-status" class="hint speech-status" role="status" aria-live="polite"></p>
+        <div id="parse-preview" class="parse-preview" hidden aria-live="polite" aria-atomic="true">
+          <div><span class="preview-label">任務</span><strong id="preview-title"></strong></div>
+          <div><span class="preview-label">提醒時間</span><span id="preview-time"></span></div>
+          <p id="preview-note" class="preview-note"></p>
+        </div>
+        <div class="composer-bottom">
+          <div class="examples" aria-label="試用時間句子"><span>試試看</span><button type="button" data-example="10分鐘後提醒我喝水">10分鐘後喝水</button><button type="button" data-example="明早提醒我買早餐">明早買早餐</button></div>
+          <button id="add-button" type="submit" class="button primary-button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新增任務</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
+    <div class="list-heading"><h2>我的任務</h2><span id="task-summary">0 件待完成</span></div>
+    <div id="task-sections">
+      <section class="task-section overdue-section" aria-labelledby="overdue-heading" data-group="overdue"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="overdue-heading">已到期</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">沒有已到期的任務，繼續保持。</p></section>
+      <section class="task-section today-section" aria-labelledby="today-heading" data-group="today"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="today-heading">今日任務</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">今天的時間，留給重要的事。</p></section>
+      <section class="task-section pending-section" aria-labelledby="pending-heading" data-group="pending"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="pending-heading">待辦任務</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">未來的安排，或尚未設定時間的任務會放在這裡。</p></section>
+      <section class="task-section completed-section" aria-labelledby="completed-heading" data-group="completed"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="completed-heading">已完成</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">每完成一件事，都值得一個勾。</p></section>
+    </div>
+    <footer class="app-footer"><p>任務儲存在目前瀏覽器，不會同步到其他裝置。</p><p>加入行事曆後，通知依你的行事曆提醒設定。</p></footer>
+  </main>
+  <div id="notification" class="notification" hidden><span id="notification-text" role="status" aria-live="polite"></span><button id="undo-button" type="button" hidden>復原刪除</button></div>
+  <template id="task-template">
+    <article class="task-row">
+      <label class="check-control"><input type="checkbox"><span class="check-visual" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4 10-10"/></svg></span></label>
+      <div class="task-content"><h3 class="task-title"></h3><p class="task-time"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><time></time></p><p class="task-original"><span>原始輸入</span><span class="original-text"></span></p><div class="calendar-actions"><a class="button calendar-button google-button" target="_blank" rel="noopener noreferrer">加入 Google Calendar<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></svg></a><button type="button" class="button calendar-button apple-button">加入 Apple 行事曆<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg></button></div></div>
+      <button type="button" class="delete-button" aria-label="刪除任務"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg><span class="sr-only">刪除</span></button>
+    </article>
+  </template>
+</body>
+</html>
