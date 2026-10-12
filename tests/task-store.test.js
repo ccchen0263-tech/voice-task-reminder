@@ -16,7 +16,8 @@ function memoryStorage(initial = null) {
 function task(id, reminderAt = null, extra = {}) {
   return {
     id, title: `任務 ${id}`, originalInput: `提醒我任務 ${id}`, reminderAt,
-    completed: false, createdAt: '2026-10-11T00:00:00.000Z', ...extra,
+    completed: false, createdAt: '2026-10-11T00:00:00.000Z', mode: 'personal',
+    location: '', locationAddress: '', locationLat: null, locationLng: null, attachments: [], ...extra,
   };
 }
 
@@ -150,4 +151,17 @@ test('local day boundaries are classified correctly across midnight', () => {
   ], now);
   assert.deepEqual(groups.today.map(item => item.id), ['same-night']);
   assert.deepEqual(groups.pending.map(item => item.id), ['one-minute-later']);
+});
+
+test('extended personal task fields round-trip without changing legacy fields', () => {
+  const storage = memoryStorage();
+  const extended = task('meeting', '2026-10-11T04:10:00.000Z', {
+    location: '公司', locationAddress: '台北市信義區', locationLat: 25.033,
+    locationLng: 121.565, attachments: [{
+      id: 'attachment-1', name: 'agenda.pdf', type: 'application/pdf', size: 1200,
+      kind: 'file', createdAt: '2026-10-11T00:01:00.000Z',
+    }],
+  });
+  assert.equal(saveTasks([extended], storage).ok, true);
+  assert.deepEqual(loadTasks(storage).tasks, [extended]);
 });

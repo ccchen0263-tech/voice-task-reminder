@@ -60,6 +60,15 @@ function createHarness({ supported = true } = {}) {
     loadTasks: () => ({ tasks: [], error: null, readOnly: false }),
     saveTasks: () => ({ ok: true }),
     classifyTasks: () => ({ overdue: [], today: [], pending: [], completed: [] }),
+    loadSettings: () => ({ settings: { mode: 'personal', calendarTarget: 'google', commonPlaces: [] }, error: null }),
+    saveSettings: () => ({ ok: true }),
+    deleteAttachments: async () => {},
+    getAttachment: async () => null,
+    listAttachments: async () => [],
+    saveAttachmentBatch: async () => [],
+    sanitizeAttachmentName: name => String(name),
+    validateAttachment: () => ({ ok: false, error: 'test' }),
+    MAX_ATTACHMENTS_PER_TASK: 3,
   };
 
   vm.runInNewContext(source, context, { filename: 'js/app.js' });

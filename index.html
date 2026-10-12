@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#6355d8">
-  <meta name="description" content="用語音或文字記下任務，自動解析台灣口語時間，加入你的行事曆。">
+  <meta name="description" content="用語音或文字記下任務，保留時間、地點與本機附件。">
   <title>AI 語音待辦提醒系統</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%236355d8'/%3E%3Cpath d='m17 33 10 10 21-24' fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
@@ -20,7 +20,7 @@
     </header>
 
     <section class="composer" aria-labelledby="composer-title">
-      <div class="composer-heading"><h2 id="composer-title">記下下一件事</h2><span class="local-note"><span class="status-dot" aria-hidden="true"></span>本機儲存</span></div>
+      <div class="composer-heading"><h2 id="composer-title">記下下一件事</h2><span class="local-note"><span class="status-dot" aria-hidden="true"></span>個人模式・本機儲存</span></div>
       <form id="task-form">
         <label for="task-input" class="sr-only">待辦事項</label>
         <div class="input-row">
@@ -30,19 +30,51 @@
             <span id="voice-label">語音輸入</span>
           </button>
         </div>
-        <p id="input-hint" class="hint">說出時間與待辦事項；也可使用 iPhone 鍵盤上的麥克風。</p>
+        <p id="input-hint" class="hint">說出時間與待辦事項；錄音前可先在「偏好設定」選擇目的行事曆介面。</p>
         <p id="speech-status" class="hint speech-status" role="status" aria-live="polite"></p>
         <div id="parse-preview" class="parse-preview" hidden aria-live="polite" aria-atomic="true">
           <div><span class="preview-label">任務</span><strong id="preview-title"></strong></div>
           <div><span class="preview-label">提醒時間</span><span id="preview-time"></span></div>
           <p id="preview-note" class="preview-note"></p>
         </div>
+        <details class="task-options">
+          <summary>任務細節（地點、附件）</summary>
+          <div class="details-grid">
+            <div class="field-group location-field">
+              <label for="task-location">地點或地址</label>
+              <div class="location-input-row"><input id="task-location" list="common-places" maxlength="400" placeholder="例如：台北車站或常用地點"><button id="location-button" class="button secondary-button" type="button">使用目前位置</button></div>
+              <datalist id="common-places"></datalist>
+              <p class="field-hint">只有點擊「使用目前位置」時才會請求定位；不會自動定位。</p>
+            </div>
+            <div class="field-group">
+              <label for="attachment-input">圖片或檔案附件</label>
+              <input id="attachment-input" type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx">
+              <p class="field-hint">最多 3 個；圖片 5 MB、其他檔案 10 MB。只儲存在此裝置的瀏覽器 IndexedDB，未上傳。</p>
+              <ul id="attachment-draft-list" class="attachment-draft-list" aria-live="polite"></ul>
+            </div>
+          </div>
+        </details>
         <div class="composer-bottom">
           <div class="examples" aria-label="試用時間句子"><span>試試看</span><button type="button" data-example="10分鐘後提醒我喝水">10分鐘後喝水</button><button type="button" data-example="明早提醒我買早餐">明早買早餐</button></div>
           <button id="add-button" type="submit" class="button primary-button"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新增任務</button>
         </div>
       </form>
     </section>
+
+    <details id="settings-panel" class="settings-panel">
+      <summary>偏好設定與資料說明</summary>
+      <div class="settings-content">
+        <div class="settings-grid">
+          <div class="field-group"><label for="storage-mode">資料模式</label><select id="storage-mode" disabled><option value="personal">個人模式（僅此裝置）</option></select><p class="field-hint">目前不提供共用模式；任務與附件不會同步到其他裝置。</p></div>
+          <div class="field-group"><label for="calendar-target">目的行事曆介面</label><select id="calendar-target"><option value="google">Google Calendar 草稿連結</option><option value="apple">Apple 行事曆 .ics 檔案</option><option value="local">只留在本機，不匯出</option></select><p id="calendar-target-note" class="field-hint"></p></div>
+        </div>
+        <div class="settings-divider"></div>
+        <div class="field-group"><label>常用地點</label><div class="place-form"><input id="place-name" maxlength="80" placeholder="名稱，例如：公司"><input id="place-address" maxlength="300" placeholder="地址或地圖搜尋文字"><button id="save-place" class="button secondary-button" type="button">儲存常用地點</button></div><ul id="common-place-list" class="common-place-list"></ul></div>
+        <div class="settings-divider"></div>
+        <div class="backup-row"><div><strong>任務資料備份</strong><p class="field-hint">可下載 JSON；包含任務與附件清單，但不包含附件內容。附件無法跨裝置還原。</p></div><div class="backup-actions"><button id="export-backup" class="button secondary-button" type="button">下載任務 JSON</button><button id="cleanup-attachments" class="button secondary-button" type="button">清理未連結附件</button></div></div>
+        <p class="privacy-note">附件只放在目前瀏覽器的 IndexedDB，僅此裝置、未同步、未上傳公開儲存空間或 GitHub。清除網站資料會移除附件。Google 目前只是建立 TEMPLATE 草稿連結，未綁定或儲存真實 calendarId；背景手機推播也未啟用，頁面關閉後不保證送達。</p>
+      </div>
+    </details>
 
     <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
     <div class="list-heading"><h2>我的任務</h2><span id="task-summary">0 件待完成</span></div>
@@ -52,7 +84,7 @@
       <section class="task-section pending-section" aria-labelledby="pending-heading" data-group="pending"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="pending-heading">待辦任務</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">未來的安排，或尚未設定時間的任務會放在這裡。</p></section>
       <section class="task-section completed-section" aria-labelledby="completed-heading" data-group="completed"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="completed-heading">已完成</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">每完成一件事，都值得一個勾。</p></section>
     </div>
-    <footer class="app-footer"><p>任務儲存在目前瀏覽器，不會同步到其他裝置。</p><p>加入行事曆後，通知依你的行事曆提醒設定。</p></footer>
+    <footer class="app-footer"><p>任務儲存在目前瀏覽器；附件僅此裝置，不會同步或上傳。</p><p>頁面內提示只在本頁開啟時可見；行事曆匯出與背景推播需另外確認，未宣稱可靠送達。</p></footer>
   </main>
   <div id="notification" class="notification" hidden><span id="notification-text" role="status" aria-live="polite"></span><button id="undo-button" type="button" hidden>復原刪除</button></div>
   <template id="task-template">
@@ -62,5 +94,6 @@
       <button type="button" class="delete-button" aria-label="刪除任務"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg><span class="sr-only">刪除</span></button>
     </article>
   </template>
+  <dialog id="attachment-dialog" class="attachment-dialog"><button id="close-attachment" class="dialog-close" type="button" aria-label="關閉附件預覽">×</button><h2 id="attachment-dialog-title"></h2><img id="attachment-preview-image" alt="" hidden><p id="attachment-preview-note"></p><a id="attachment-download" class="button primary-button" download>下載附件</a></dialog>
 </body>
 </html>

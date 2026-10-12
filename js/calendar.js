@@ -27,7 +27,8 @@ function formatUTC(date) {
 }
 
 function getDescription(task) {
-  return `原始輸入：${String(task.originalInput ?? '')}\n由語音待辦提醒系統建立。`;
+  const location = String(task.locationAddress || task.location || '').trim();
+  return `原始輸入：${String(task.originalInput ?? '')}${location ? `\n地點：${location}` : ''}\n由語音待辦提醒系統建立。`;
 }
 
 function escapeText(value) {
@@ -75,7 +76,23 @@ export function createGoogleCalendarUrl(task) {
   url.searchParams.set('text', String(task.title ?? ''));
   url.searchParams.set('dates', `${formatUTC(start)}/${formatUTC(end)}`);
   url.searchParams.set('details', getDescription(task));
+  const location = String(task.locationAddress || task.location || '').trim();
+  if (location) url.searchParams.set('location', location);
   url.searchParams.set('ctz', 'Asia/Taipei');
+  return url.href;
+}
+
+/** Build a user-clicked map search link; this does not request location permission. */
+export function createMapUrl(task) {
+  const latitude = Number(task?.locationLat);
+  const longitude = Number(task?.locationLng);
+  const query = Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? `${latitude},${longitude}`
+    : String(task?.locationAddress || task?.location || '').trim();
+  if (!query) return null;
+  const url = new URL('https://www.google.com/maps/search/');
+  url.searchParams.set('api', '1');
+  url.searchParams.set('query', query);
   return url.href;
 }
 

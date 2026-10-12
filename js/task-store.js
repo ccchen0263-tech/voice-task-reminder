@@ -19,6 +19,39 @@ function isoTimestamp(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
+function safeCoordinate(value, min, max) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= min && number <= max ? number : null;
+}
+
+function normalizeAttachmentMetadata(value) {
+  if (!Array.isArray(value)) return { attachments: [], invalid: value !== undefined && value !== null };
+  const attachments = [];
+  let invalid = false;
+  for (const item of value) {
+    if (!item || typeof item !== 'object'
+        || typeof item.id !== 'string' || !item.id.trim()
+        || typeof item.name !== 'string' || !item.name.trim()
+        || typeof item.type !== 'string' || !item.type.trim()
+        || !Number.isFinite(Number(item.size)) || Number(item.size) <= 0
+        || !['image', 'file'].includes(item.kind)
+        || !isoTimestamp(item.createdAt)) {
+      invalid = true;
+      continue;
+    }
+    attachments.push({
+      id: item.id.trim(),
+      name: item.name.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '_').trim().slice(0, 120) || '附件',
+      type: item.type.trim().slice(0, 160),
+      size: Number(item.size),
+      kind: item.kind,
+      createdAt: isoTimestamp(item.createdAt),
+    });
+  }
+  return { attachments: attachments.slice(0, 3), invalid };
+}
+
 function inspectTasks(value) {
   if (!Array.isArray(value)) return { tasks: [], issues: 1 };
   const tasks = [];
@@ -43,6 +76,10 @@ function inspectTasks(value) {
     ids.add(id);
     const reminderAt = item.reminderAt === null ? null : isoTimestamp(item.reminderAt);
     if (item.reminderAt !== null && !reminderAt) issues += 1;
+    const attachmentResult = normalizeAttachmentMetadata(item.attachments);
+    if (attachmentResult.invalid) issues += 1;
+    const location = typeof item.location === 'string' ? item.location.trim().slice(0, 300) : '';
+    const locationAddress = typeof item.locationAddress === 'string' ? item.locationAddress.trim().slice(0, 400) : '';
     tasks.push({
       id,
       title: item.title.trim(),
@@ -50,6 +87,12 @@ function inspectTasks(value) {
       reminderAt,
       completed: item.completed,
       createdAt,
+      mode: 'personal',
+      location,
+      locationAddress,
+      locationLat: safeCoordinate(item.locationLat, -90, 90),
+      locationLng: safeCoordinate(item.locationLng, -180, 180),
+      attachments: attachmentResult.attachments,
     });
   }
   return { tasks, issues };

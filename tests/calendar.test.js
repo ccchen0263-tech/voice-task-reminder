@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGoogleCalendarUrl, createICS } from '../js/calendar.js';
+import { createGoogleCalendarUrl, createICS, createMapUrl } from '../js/calendar.js';
 
 const task = {
   id: 'task-123',
@@ -74,4 +74,22 @@ test('Unscheduled and invalid tasks cannot generate calendar events', () => {
   }
   assert.throws(() => createICS({ ...task, id: null }), TypeError);
   assert.throws(() => createICS(task, new Date('invalid date')), TypeError);
+});
+
+test('map links use explicit coordinates or a user-entered address', () => {
+  const byAddress = new URL(createMapUrl({ locationAddress: '台北車站' }));
+  assert.equal(byAddress.origin, 'https://www.google.com');
+  assert.equal(byAddress.searchParams.get('query'), '台北車站');
+  const byCoordinates = new URL(createMapUrl({ location: '目前位置', locationLat: 25.033, locationLng: 121.565 }));
+  assert.equal(byCoordinates.searchParams.get('query'), '25.033,121.565');
+  assert.equal(byCoordinates.protocol, 'https:');
+  assert.equal(byCoordinates.hostname, 'www.google.com');
+  assert.equal(createMapUrl({}), null);
+});
+
+test('calendar drafts carry the entered location without binding a calendar ID', () => {
+  const url = new URL(createGoogleCalendarUrl({ ...task, locationAddress: '台北車站' }));
+  assert.equal(url.searchParams.get('location'), '台北車站');
+  assert.equal(url.searchParams.has('calendarId'), false);
+  assert.equal(url.searchParams.get('action'), 'TEMPLATE');
 });

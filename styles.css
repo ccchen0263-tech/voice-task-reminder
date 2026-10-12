@@ -96,3 +96,47 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3
 @media (min-width: 640px) { .app-shell { padding: 44px 32px 48px; } .app-header { margin-bottom: 30px; gap: 16px; } .brand-symbol { flex-basis: 54px; height: 54px; } .composer { padding: 26px; } .voice-button { flex-basis: 112px; font-size: 14px; } .composer-bottom { flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; } .primary-button { width: auto; min-width: 146px; } .task-section { padding: 22px 26px; } .task-row { gap: 10px; } .task-title { font-size: 17px; } .task-time, .task-original { font-size: 13px; } }
 @media (max-width: 360px) { .app-shell { padding-inline: 14px; } .app-header { gap: 10px; } .brand-symbol { flex-basis: 42px; height: 42px; } h1 { font-size: 20px; } .composer { padding: 16px; } .task-section { padding-inline: 14px; } .calendar-button { padding-inline: 8px; font-size: 11px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.task-options, .settings-panel { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; background: #fcfcfe; }
+.task-options summary, .settings-panel summary { cursor: pointer; padding: 12px 14px; color: #5f568d; font-size: 13px; font-weight: 650; }
+.details-grid, .settings-content { padding: 0 14px 15px; }
+.details-grid, .settings-grid { display: grid; gap: 15px; }
+.field-group { min-width: 0; }
+.field-group > label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 650; }
+.field-group input, .field-group select { width: 100%; min-height: 44px; border: 1px solid #dedce9; border-radius: 9px; padding: 9px 11px; background: white; color: var(--ink); font: inherit; font-size: 14px; }
+.field-group input[type="file"] { padding: 8px; font-size: 13px; }
+.field-group input:focus, .field-group select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #6355d81a; }
+.field-hint { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.location-input-row, .place-form, .backup-row { display: flex; gap: 8px; align-items: center; }
+.location-input-row input, .place-form input { min-width: 0; flex: 1; }
+.secondary-button { min-height: 44px; padding: 9px 12px; border-color: #e0dcec; background: white; color: #685c96; font-size: 12px; white-space: nowrap; }
+.secondary-button:hover { background: #f5f2fc; }
+.attachment-draft-list, .common-place-list { list-style: none; display: grid; gap: 6px; margin: 9px 0 0; padding: 0; }
+.attachment-draft-list li, .common-place-list li { display: flex; align-items: center; gap: 8px; min-width: 0; color: #625d70; font-size: 12px; }
+.attachment-draft-list img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+.attachment-draft-list span, .common-place-list span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.remove-attachment, .remove-place { border: 0; background: transparent; color: #8b6e9d; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.settings-panel { margin-top: 14px; }
+.settings-panel[open] { box-shadow: 0 5px 25px #29283904; }
+.settings-divider { height: 1px; margin: 15px 0; background: var(--border); }
+.backup-row { justify-content: space-between; align-items: flex-start; }
+.backup-row > div { min-width: 0; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.backup-row .button { flex: 0 0 auto; }
+.privacy-note { margin-top: 15px; padding: 11px 12px; border-radius: 9px; background: #f4f2fc; color: #6d6780; font-size: 12px; line-height: 1.7; }
+.task-location, .task-attachments { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; margin-top: 7px; color: #6f6a7c; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.location-label { min-width: 0; }
+.map-link { color: #6355d8; text-underline-offset: 3px; }
+.attachment-label { color: #7b768a; flex: 0 0 auto; }
+.attachment-list { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.attachment-button { border: 1px solid #e3def7; border-radius: 8px; padding: 5px 8px; background: #faf8ff; color: #685c96; font-size: 12px; overflow-wrap: anywhere; }
+.attachment-button:hover { background: #f0ebff; }
+.attachment-dialog { width: min(92vw, 560px); border: 0; border-radius: 16px; padding: 24px; color: var(--ink); box-shadow: 0 20px 70px #29283940; }
+.attachment-dialog::backdrop { background: #29283966; }
+.attachment-dialog h2 { padding-right: 28px; font-size: 17px; overflow-wrap: anywhere; }
+.attachment-dialog img { display: block; width: 100%; max-height: 55vh; object-fit: contain; margin-top: 15px; border-radius: 10px; background: #f4f4f8; }
+.attachment-dialog p { margin-top: 13px; color: var(--muted); font-size: 13px; }
+.attachment-dialog .primary-button { margin-top: 15px; }
+.dialog-close { position: absolute; top: 9px; right: 10px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 27px; line-height: 1; }
+.dialog-close:hover { background: #f4f2fc; }
+@media (min-width: 640px) { .details-grid, .settings-grid { grid-template-columns: 1fr 1fr; } .place-form { align-items: flex-start; } }
+@media (max-width: 520px) { .location-input-row, .place-form, .backup-row { flex-wrap: wrap; } .location-input-row .button, .place-form .button, .backup-row .button { width: 100%; } .backup-actions { width: 100%; } }
