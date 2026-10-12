@@ -87,6 +87,24 @@ test('map links use explicit coordinates or a user-entered address', () => {
   assert.equal(createMapUrl({}), null);
 });
 
+test('map links ignore missing, empty, and invalid coordinates but preserve real zero coordinates', () => {
+  const cases = [
+    { locationAddress: 'QA測試地點1012：台北車站', locationLat: null, locationLng: null },
+    { locationAddress: '地址文字', locationLat: undefined, locationLng: undefined },
+    { locationAddress: '空字串座標', locationLat: '', locationLng: '' },
+    { locationAddress: '越界座標', locationLat: 91, locationLng: -181 },
+    { locationAddress: '部分無效', locationLat: 25.033, locationLng: 'invalid' },
+  ];
+  for (const task of cases) {
+    const url = new URL(createMapUrl(task));
+    assert.equal(url.searchParams.get('query'), task.locationAddress);
+  }
+  const zero = new URL(createMapUrl({ location: '赤道本初子午線', locationLat: 0, locationLng: 0 }));
+  assert.equal(zero.searchParams.get('query'), '0,0');
+  const zeroStrings = new URL(createMapUrl({ location: '赤道本初子午線', locationLat: '0', locationLng: '0' }));
+  assert.equal(zeroStrings.searchParams.get('query'), '0,0');
+});
+
 test('calendar drafts carry the entered location without binding a calendar ID', () => {
   const url = new URL(createGoogleCalendarUrl({ ...task, locationAddress: '台北車站' }));
   assert.equal(url.searchParams.get('location'), '台北車站');

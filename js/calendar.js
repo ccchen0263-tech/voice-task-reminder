@@ -84,9 +84,15 @@ export function createGoogleCalendarUrl(task) {
 
 /** Build a user-clicked map search link; this does not request location permission. */
 export function createMapUrl(task) {
-  const latitude = Number(task?.locationLat);
-  const longitude = Number(task?.locationLng);
-  const query = Number.isFinite(latitude) && Number.isFinite(longitude)
+  const validCoordinate = (value, minimum, maximum) => {
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null;
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= minimum && number <= maximum ? number : null;
+  };
+  const latitude = validCoordinate(task?.locationLat, -90, 90);
+  const longitude = validCoordinate(task?.locationLng, -180, 180);
+  const query = latitude !== null && longitude !== null
     ? `${latitude},${longitude}`
     : String(task?.locationAddress || task?.location || '').trim();
   if (!query) return null;

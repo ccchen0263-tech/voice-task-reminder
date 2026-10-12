@@ -14,12 +14,12 @@
 - Allowed attachments are images, PDF, TXT, CSV, Word, and Excel. HTML, SVG, executable types, and oversized files are rejected; unsafe filename characters are sanitized. Images use local Blob URL preview; other files are download-only and are never executed in the page.
 - Deleted task attachments remain locally recoverable during the 15-second undo window; the settings panel also provides an explicit local “清理未連結附件” action. Clearing site data removes local tasks, settings, and attachments.
 - JSON export contains task data and attachment metadata only. There is no JSON import, so the backup cannot overwrite existing data and cannot be mistaken for an attachment backup.
-- Time parsing and classification preserve existing timezone behavior, including due/today/pending boundaries and UTC calendar export. Map links are generated only with `https:` and the fixed `www.google.com` host.
+- Time parsing and classification preserve existing timezone behavior, including due/today/pending boundaries and UTC calendar export. Map links are generated only with `https:` and the fixed `www.google.com` host. Missing, empty, non-finite, and out-of-range coordinates fall back to the entered address; true numeric or string `0,0` coordinates remain valid.
 - Calendar settings are local preferences. Google remains a `TEMPLATE` draft URL, Apple remains an `.ics` file download; no real `calendarId` binding or successful remote save is claimed.
 
 ## Validation
 
-- `npm test`: 59 passed, 0 failed.
+- `npm test`: 60 passed, 0 failed, including regression coverage for null/undefined/empty/out-of-range map coordinates and valid `0,0` coordinates.
 - `npm run build`: passed; 8 static assets generated.
 - `node --check` for changed JavaScript: passed.
 - `git diff --check`: passed.
