@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#6355d8">
   <meta name="description" content="用語音或文字記下任務，保留時間、地點與本機附件。">
   <title>AI 語音待辦提醒系統</title>
+  <script>(() => { let theme; try { theme = localStorage.getItem('voice-task-reminder.theme.v1'); } catch {} if (theme !== 'light' && theme !== 'dark') { try { theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch { theme = 'light'; } } document.documentElement.dataset.theme = theme; })();</script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%236355d8'/%3E%3Cpath d='m17 33 10 10 21-24' fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="js/app.js"></script>
@@ -16,12 +17,13 @@
       <div class="brand-symbol" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="3" width="7" height="12" rx="3.5"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/></svg>
       </div>
-      <div class="header-copy"><h1>AI 語音待辦提醒系統</h1><p id="today-label"></p></div>
+      <div class="header-copy"><h1>AI 語音待辦提醒系統</h1><p id="today-label"></p></div><button id="theme-toggle" type="button" class="button theme-toggle" aria-label="切換日夜主題">切換深色</button>
     </header>
 
     <section class="composer" aria-labelledby="composer-title">
       <div class="composer-heading"><h2 id="composer-title">記下下一件事</h2><span class="local-note"><span class="status-dot" aria-hidden="true"></span>個人模式・本機儲存</span></div>
       <form id="task-form">
+        <div class="field-group destination-picker"><label for="task-destination">本次目的地（錄音前確認）</label><select id="task-destination" aria-describedby="destination-hint"></select><p id="destination-hint" class="field-hint"></p></div>
         <label for="task-input" class="sr-only">待辦事項</label>
         <div class="input-row">
           <textarea id="task-input" placeholder="請輸入待辦事項" rows="2" maxlength="1000" aria-describedby="input-hint" required></textarea>
@@ -30,7 +32,7 @@
             <span id="voice-label">語音輸入</span>
           </button>
         </div>
-        <p id="input-hint" class="hint">說出時間與待辦事項；錄音前可先在「偏好設定」選擇目的行事曆介面。</p>
+        <p id="input-hint" class="hint">說出時間與待辦事項，也可用鍵盤麥克風。先記下，時間確定後再安排。</p>
         <p id="speech-status" class="hint speech-status" role="status" aria-live="polite"></p>
         <div id="parse-preview" class="parse-preview" hidden aria-live="polite" aria-atomic="true">
           <div><span class="preview-label">任務</span><strong id="preview-title"></strong></div>
@@ -38,8 +40,12 @@
           <p id="preview-note" class="preview-note"></p>
         </div>
         <details class="task-options">
-          <summary>任務細節（地點、附件）</summary>
+          <summary>任務細節（時間、分類、地點、附件）</summary>
           <div class="details-grid">
+            <div class="field-group"><label for="task-time">指定時間（留空則解析輸入）</label><input id="task-time" type="datetime-local"><label class="inline-check"><input id="task-no-time" type="checkbox">先存為未定時間的備忘</label></div>
+            <div class="field-group"><label for="task-category">分類標籤</label><select id="task-category" class="task-category-select"></select></div>
+            <div class="field-group"><label for="task-repeat">重複任務</label><select id="task-repeat" class="task-repeat-select"></select><p class="field-hint">完成這次任務後建立下一次，需要先設定提醒時間。</p></div>
+            <div class="field-group location-field"><label for="task-notes">備註</label><textarea id="task-notes" rows="2" maxlength="2000" placeholder="會議重點、購物清單，或留給自己的備註"></textarea></div>
             <div class="field-group location-field">
               <label for="task-location">地點或地址</label>
               <div class="location-input-row"><input id="task-location" list="common-places" maxlength="400" placeholder="例如：台北車站或常用地點"><button id="location-button" class="button secondary-button" type="button">使用目前位置</button></div>
@@ -66,25 +72,41 @@
       <div class="settings-content">
         <div class="settings-grid">
           <div class="field-group"><label for="storage-mode">資料模式</label><select id="storage-mode" disabled><option value="personal">個人模式（僅此裝置）</option></select><p class="field-hint">目前不提供共用模式；任務與附件不會同步到其他裝置。</p></div>
-          <div class="field-group"><label for="calendar-target">目的行事曆介面</label><select id="calendar-target"><option value="google">Google Calendar 草稿連結</option><option value="apple">Apple 行事曆 .ics 檔案</option><option value="local">只留在本機，不匯出</option></select><p id="calendar-target-note" class="field-hint"></p></div>
+          <div class="field-group"><strong>Google 真實清單：尚未連線</strong><p class="field-hint">目前不會讀取 Google 行事曆，也不能指定寫入。下方名稱只保存在本機；開啟 Google 草稿後，請自行選對行事曆並儲存。</p></div>
         </div>
+        <div class="settings-divider"></div><div class="field-group"><label for="destination-name">Google 行事曆命名清單（本機）</label><div class="place-form"><input id="destination-name" maxlength="80" placeholder="例如：工作、家庭、個人"><button id="save-destination" type="button" class="button secondary-button">新增目的地名稱</button></div><p class="field-hint">僅建立本機標籤，不代表已取得真實 Google 行事曆 ID 或寫入權限。刪除名稱不會更改既有任務目的地。</p><ul id="destination-list" class="common-place-list"></ul></div>
+        <div class="settings-divider"></div>
+        <div class="reminder-settings"><h3>到期提醒</h3><label class="inline-check"><input id="page-alerts" type="checkbox" checked>顯示頁面內到期提示</label><div class="reminder-actions"><button id="enable-sound" class="button secondary-button" type="button">啟用／測試響鈴</button><button id="enable-system-notifications" class="button secondary-button" type="button">啟用系統通知</button></div><p id="reminder-status" class="field-hint" role="status" aria-live="polite"></p><p class="field-hint">響鈴需先點擊啟用。系統通知需瀏覽器授權，可能顯示任務名稱；支援情況依裝置而異。</p><p class="privacy-note">本機提醒只在頁面仍開啟且瀏覽器允許執行時運作。關閉頁面、手機鎖屏或系統暫停瀏覽器後，不保證送達。</p><div class="field-group"><label for="calendar-alarm">Apple 行事曆匯出提醒</label><select id="calendar-alarm"><option value="none">不設定</option><option value="0">事件開始時</option><option value="10">10 分鐘前</option><option value="30">30 分鐘前</option></select><p class="field-hint">匯入後請確認行事曆提醒設定。Google 草稿的提醒需在 Google Calendar 自行設定。</p></div></div>
         <div class="settings-divider"></div>
         <div class="field-group"><label>常用地點</label><div class="place-form"><input id="place-name" maxlength="80" placeholder="名稱，例如：公司"><input id="place-address" maxlength="300" placeholder="地址或地圖搜尋文字"><button id="save-place" class="button secondary-button" type="button">儲存常用地點</button></div><ul id="common-place-list" class="common-place-list"></ul></div>
         <div class="settings-divider"></div>
         <div class="backup-row"><div><strong>任務資料備份</strong><p class="field-hint">可下載 JSON；包含任務與附件清單，但不包含附件內容。附件無法跨裝置還原。</p></div><div class="backup-actions"><button id="export-backup" class="button secondary-button" type="button">下載任務 JSON</button><button id="cleanup-attachments" class="button secondary-button" type="button">清理未連結附件</button></div></div>
-        <p class="privacy-note">附件只放在目前瀏覽器的 IndexedDB，僅此裝置、未同步、未上傳公開儲存空間或 GitHub。清除網站資料會移除附件。Google 目前只是建立 TEMPLATE 草稿連結，未綁定或儲存真實 calendarId；背景手機推播也未啟用，頁面關閉後不保證送達。</p>
+        <p class="privacy-note">附件只放在目前瀏覽器的 IndexedDB，僅此裝置、未同步、未上傳公開儲存空間或 GitHub。清除網站資料會移除附件。Google 目前只是建立 TEMPLATE 草稿連結，未綁定真實 calendarId。讀取真實清單／指定寫入需另行確認 Google 授權，背景 Web Push 尚未啟用。</p>
       </div>
     </details>
 
     <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
-    <div class="list-heading"><h2>我的任務</h2><span id="task-summary">0 件待完成</span></div>
+    <aside id="due-alert" class="due-alert" aria-label="到期提醒" hidden><div><strong id="due-alert-text" role="status" aria-live="polite"></strong><p id="due-alert-tasks"></p></div><button id="view-overdue" type="button" class="button secondary-button">查看已到期</button></aside>
+    <section class="view-tools" aria-label="搜尋與篩選">
+      <label class="search-field" for="search-input"><span>搜尋</span><input id="search-input" type="search" placeholder="搜尋任務、地點或備註" maxlength="200"></label>
+      <div class="filter-row"><label for="category-filter">分類<select id="category-filter"><option value="all">全部分類</option></select></label><label class="inline-check"><input id="include-completed" type="checkbox" checked>顯示已完成</label></div>
+    </section>
+    <section id="planner-panel" class="planner-panel" aria-label="月曆" hidden>
+      <div class="calendar-mode-row"><label for="calendar-mode">行事曆檢視<select id="calendar-mode"><option value="month">月曆</option><option value="week">週曆</option></select></label></div>
+      <div class="month-toolbar"><button id="previous-month" type="button" class="month-arrow" aria-label="上一個月">‹</button><h2 id="month-label"></h2><button id="next-month" type="button" class="month-arrow" aria-label="下一個月">›</button><button id="go-today" type="button" class="today-button">今天</button></div>
+      <div class="weekday-row" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div><div id="month-grid" class="month-grid" role="group" aria-label="選擇日期"></div>
+      <p class="planner-hint">數字標示當天待完成的行程。點選日期查看清單，可切換月曆或週曆。</p>
+    </section>
+    <div class="list-heading"><div><h2 id="view-heading">我的行程</h2><p id="view-description" class="view-description">用清單安排今天，也把未定的事留在備忘。</p></div><span id="task-summary">0 件待完成</span></div>
+    <p id="filter-empty" class="filter-empty" hidden>沒有符合條件的任務。試著清除搜尋或切換分類。</p>
     <div id="task-sections">
       <section class="task-section overdue-section" aria-labelledby="overdue-heading" data-group="overdue"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="overdue-heading">已到期</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">沒有已到期的任務，繼續保持。</p></section>
       <section class="task-section today-section" aria-labelledby="today-heading" data-group="today"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="today-heading">今日任務</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">今天的時間，留給重要的事。</p></section>
       <section class="task-section pending-section" aria-labelledby="pending-heading" data-group="pending"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="pending-heading">待辦任務</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">未來的安排，或尚未設定時間的任務會放在這裡。</p></section>
       <section class="task-section completed-section" aria-labelledby="completed-heading" data-group="completed"><div class="section-heading"><span class="section-marker" aria-hidden="true"></span><h2 id="completed-heading">已完成</h2><span class="section-count">0</span></div><div class="task-list"></div><p class="empty-state">每完成一件事，都值得一個勾。</p></section>
     </div>
-    <footer class="app-footer"><p>任務儲存在目前瀏覽器；附件僅此裝置，不會同步或上傳。</p><p>頁面內提示只在本頁開啟時可見；行事曆匯出與背景推播需另外確認，未宣稱可靠送達。</p></footer>
+    <footer class="app-footer"><p>任務儲存在目前瀏覽器；附件僅此裝置，不會同步或上傳。</p><p>本機提醒需要頁面保持開啟；背景 Web Push 尚未啟用。</p></footer>
+    <nav class="view-switcher" aria-label="行程檢視"><button type="button" data-view="agenda" aria-pressed="true"><span aria-hidden="true">☰</span>行程</button><button type="button" data-view="calendar" aria-pressed="false"><span aria-hidden="true">▦</span>月曆</button><button type="button" data-view="memo" aria-pressed="false"><span aria-hidden="true">▤</span>備忘</button><button id="quick-add" type="button" aria-label="回到新增任務"><span aria-hidden="true">＋</span>新增</button></nav>
   </main>
   <div id="notification" class="notification" hidden><span id="notification-text" role="status" aria-live="polite"></span><button id="undo-button" type="button" hidden>復原刪除</button></div>
   <template id="task-template">
@@ -95,5 +117,7 @@
     </article>
   </template>
   <dialog id="attachment-dialog" class="attachment-dialog"><button id="close-attachment" class="dialog-close" type="button" aria-label="關閉附件預覽">×</button><h2 id="attachment-dialog-title"></h2><img id="attachment-preview-image" alt="" hidden><p id="attachment-preview-note"></p><a id="attachment-download" class="button primary-button" download>下載附件</a></dialog>
+  <dialog id="edit-dialog" class="edit-dialog" aria-labelledby="edit-heading"><form id="edit-form"><div class="edit-heading"><h2 id="edit-heading">編輯任務</h2><button id="close-edit" class="dialog-close" type="button" aria-label="關閉任務編輯">×</button></div><div class="field-group"><label for="edit-title">任務名稱</label><input id="edit-title" required maxlength="1000"></div><div class="field-group"><label for="edit-destination">這筆任務目的地</label><select id="edit-destination"></select><p class="field-hint">只影響本機任務與之後產生的下一筆；不會修改已匯出的事件。</p></div><div class="details-grid"><div class="field-group"><label for="edit-time">提醒時間</label><input id="edit-time" type="datetime-local"><p class="field-hint">留空會移到備忘；填入時間即可排入月曆。</p></div><div class="field-group"><label for="edit-category">分類標籤</label><select id="edit-category" class="task-category-select"></select></div><div class="field-group"><label for="edit-repeat">重複任務</label><select id="edit-repeat" class="task-repeat-select"></select><p class="field-hint">只影響這筆與之後新建立的下一筆，不修改其他既有任務。</p></div></div><div class="field-group"><label for="edit-location">地點或地址</label><input id="edit-location" maxlength="400"></div><div class="field-group"><label for="edit-notes">備註</label><textarea id="edit-notes" rows="3" maxlength="2000"></textarea></div><p class="field-hint">原始輸入與既有附件會保留。</p><div class="edit-actions"><button id="cancel-edit" type="button" class="button secondary-button">取消</button><button type="submit" class="button primary-button">儲存修改</button></div></form></dialog>
+  <dialog id="calendar-confirmation" class="edit-dialog" aria-labelledby="calendar-confirm-heading"><h2 id="calendar-confirm-heading">確認 Google 草稿目的地</h2><p id="calendar-confirm-destination"></p><p>這個名稱只保存在本機；App 沒有讀取或寫入 Google 行事曆。請在 Google 草稿內自行確認正確行事曆及重複設定，再儲存。</p><div class="edit-actions"><button id="calendar-confirm-cancel" type="button" class="button secondary-button">取消</button><a id="calendar-confirm-link" class="button primary-button" target="_blank" rel="noopener noreferrer">開啟 Google 草稿</a></div></dialog>
 </body>
 </html>

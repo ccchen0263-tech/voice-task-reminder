@@ -1,0 +1,210 @@
+{
+  "clientDate": "2026-10-13",
+  "baseCommit": "95b8f37fee27696acbb1f110336216cf89337b9b",
+  "branch": "main",
+  "state": "local uncommitted integration; not pushed or deployed",
+  "tests": {
+    "total": 203,
+    "passed": 203,
+    "failed": 0,
+    "logSha256": "62C51EC4EF384D4F11EE91FC1451AB9D82564B4034640C3AD2E6224FEFE047B8"
+  },
+  "backup": {
+    "path": "..\\voice-task-reminder-備份-20261013-四項整合前",
+    "baselineTests": 148,
+    "files": 41,
+    "manifestSha256": "6CEA1A9AA54010EE61D45A430907BA038936913220A90045003A7CCE24D96FE5"
+  },
+  "source": [
+    {
+      "path": "使用說明.md",
+      "sha256": "96D54CEFA3C6549C2703C5848E1A949FF24D82721A92C2E449CC4CA591120684"
+    },
+    {
+      "path": "index.html",
+      "sha256": "2BFF00926AD3DB351AC5A6B79952B17CDB85EDF2D4AC359B41EC87610C64A060"
+    },
+    {
+      "path": "js/app.js",
+      "sha256": "F078D65672C551BA1A5B93C0550A74843C100E5BAB89D31CFEF605C32866C7D9"
+    },
+    {
+      "path": "js/attachment-store.js",
+      "sha256": "27C977FE24F829CEC2DDE5F062A27AAB6299229442B3465BF0438E3A507194FE"
+    },
+    {
+      "path": "js/calendar.js",
+      "sha256": "8FBABC2AEDF306A6FAA8B22D85BF4076A86309AE13BB8A002DBD32DE87BE8191"
+    },
+    {
+      "path": "js/destinations.js",
+      "sha256": "EFBA21C9FDAC43A2544AA686D1725988506FE5B22AE026A0EF5AB62B1D09D28B"
+    },
+    {
+      "path": "js/planner.js",
+      "sha256": "DFA449282F1358A553D06FC8AEF9DCBC1E2E739B8271FCB3786A4D1A36F3390C"
+    },
+    {
+      "path": "js/recurrence.js",
+      "sha256": "85FB6A2DBA2619FF8D3209469E0865932A5BB70FCCF8A0EC9E135D97D2843AE4"
+    },
+    {
+      "path": "js/reminders.js",
+      "sha256": "D4F8D12B06E4D18559E1B6373FEBCDD894130F6DE51D380CE9A3F0ACA69974C4"
+    },
+    {
+      "path": "js/settings-store.js",
+      "sha256": "660AE6202DEC1749E485ADD3F256C104F602946CE3074E7F6F207A838DEB8918"
+    },
+    {
+      "path": "js/speech-input.js",
+      "sha256": "47103D978410F49AD30820C23405EE4198650A38B3F77CD5F106851C87D1F071"
+    },
+    {
+      "path": "js/task-store.js",
+      "sha256": "19B82B8E9649E742DBEA524BE7821985D37B4ABAB66370DD5DF809D3B34D6F8E"
+    },
+    {
+      "path": "js/task-view.js",
+      "sha256": "92C141482F6415BE73EEB07E694E19AAC6CC8ACF3A18DE1B09C82E791864FF2A"
+    },
+    {
+      "path": "js/theme.js",
+      "sha256": "6200A39C70CB1C6BA77B709AEA196249A8EBB34E9C56723234DA1D84FA8D01D7"
+    },
+    {
+      "path": "js/time-parser.js",
+      "sha256": "913F6CFD1F357A5D168CC87FC276509AD7A98396F2181C327DEFCA6310482CD6"
+    },
+    {
+      "path": "package.json",
+      "sha256": "4C10A2D64E17EEDF5AAB31FDBE9B9A40C07BD12C259973CFFFEA2A3100FAB36E"
+    },
+    {
+      "path": "scripts/build.js",
+      "sha256": "162D562BD0A3FDD2D63025E53E378EB699AEAA5DE1BB47182F166699E4293C02"
+    },
+    {
+      "path": "server.js",
+      "sha256": "67494C4CD1319322A1ACAE5227B9CD65F95478A3CA96680EAC44F00B99C51AF4"
+    },
+    {
+      "path": "styles.css",
+      "sha256": "25D6A1D44169683CC7644A12697F8D9B401FBFB2CCEC3D165A31ADCE36D32173"
+    },
+    {
+      "path": "tests/app-speech.test.js",
+      "sha256": "AAF3531F411C553B2C168EA66202FB35D6CAE46C42920D03EB4E3EC3A0FE0B58"
+    },
+    {
+      "path": "tests/attachment-store.test.js",
+      "sha256": "106DE6B7509DC3D68072A3A377B103CBDD0B22D362371F3F674A0EC5E30803B9"
+    },
+    {
+      "path": "tests/calendar.test.js",
+      "sha256": "47A5441A223BE57534672561B688FAE07813869C291CFC225502084F59E8CD04"
+    },
+    {
+      "path": "tests/destinations.test.js",
+      "sha256": "D31F270A0618E5BF0F06830A8F33265F256F2D17CAF8EA9B3F326B8B41A21B84"
+    },
+    {
+      "path": "tests/planner.test.js",
+      "sha256": "733350668F08D8DE27D73B3189FEAC43C30F6A17DDC2AECD26ACA1EAF5A6DFE1"
+    },
+    {
+      "path": "tests/recurrence.test.js",
+      "sha256": "1D7B2A6038A7B08E5304F3092CDB758DEB1DE9219D6F3A861F3FF43DEF9FED49"
+    },
+    {
+      "path": "tests/reminders.test.js",
+      "sha256": "1E1D3D9E6D7CA4525107BA80E664126C1BDCECECFFA6EFD4A622EDED58631BFA"
+    },
+    {
+      "path": "tests/settings-store.test.js",
+      "sha256": "AB5AAA6BD5EA69936BF2D5944B3B896B0C07445AACF05DF25AB8242B526BD48E"
+    },
+    {
+      "path": "tests/speech-input.test.js",
+      "sha256": "843E35AADA29A892C5BABAA8E39A8D8930DF9EEC71CD904E4CA4871B75FA50F7"
+    },
+    {
+      "path": "tests/task-store.test.js",
+      "sha256": "E905457B08EF9111446D2090FE21A6C2044A74635635E09FC47E3ADCB1EA84CF"
+    },
+    {
+      "path": "tests/task-view.test.js",
+      "sha256": "1FB839F44195053F8AB358D723AF0B81EA2370CEEE349D7856A95D90BB736BE3"
+    },
+    {
+      "path": "tests/theme.test.js",
+      "sha256": "DC66CF6E819E323CD2D54C1757814FF949332FAC7332F290DBDA174535149DC6"
+    },
+    {
+      "path": "tests/time-parser.test.js",
+      "sha256": "484810C7FF8A69E4E11C90B679E7BF90A9E801FBB0D092232B8320A148BE73B7"
+    }
+  ],
+  "builtAssets": [
+    {
+      "path": "index.html",
+      "sha256": "2BFF00926AD3DB351AC5A6B79952B17CDB85EDF2D4AC359B41EC87610C64A060"
+    },
+    {
+      "path": "js/app.js",
+      "sha256": "F078D65672C551BA1A5B93C0550A74843C100E5BAB89D31CFEF605C32866C7D9"
+    },
+    {
+      "path": "js/attachment-store.js",
+      "sha256": "27C977FE24F829CEC2DDE5F062A27AAB6299229442B3465BF0438E3A507194FE"
+    },
+    {
+      "path": "js/calendar.js",
+      "sha256": "8FBABC2AEDF306A6FAA8B22D85BF4076A86309AE13BB8A002DBD32DE87BE8191"
+    },
+    {
+      "path": "js/destinations.js",
+      "sha256": "EFBA21C9FDAC43A2544AA686D1725988506FE5B22AE026A0EF5AB62B1D09D28B"
+    },
+    {
+      "path": "js/planner.js",
+      "sha256": "DFA449282F1358A553D06FC8AEF9DCBC1E2E739B8271FCB3786A4D1A36F3390C"
+    },
+    {
+      "path": "js/recurrence.js",
+      "sha256": "85FB6A2DBA2619FF8D3209469E0865932A5BB70FCCF8A0EC9E135D97D2843AE4"
+    },
+    {
+      "path": "js/reminders.js",
+      "sha256": "D4F8D12B06E4D18559E1B6373FEBCDD894130F6DE51D380CE9A3F0ACA69974C4"
+    },
+    {
+      "path": "js/settings-store.js",
+      "sha256": "660AE6202DEC1749E485ADD3F256C104F602946CE3074E7F6F207A838DEB8918"
+    },
+    {
+      "path": "js/speech-input.js",
+      "sha256": "47103D978410F49AD30820C23405EE4198650A38B3F77CD5F106851C87D1F071"
+    },
+    {
+      "path": "js/task-store.js",
+      "sha256": "19B82B8E9649E742DBEA524BE7821985D37B4ABAB66370DD5DF809D3B34D6F8E"
+    },
+    {
+      "path": "js/task-view.js",
+      "sha256": "92C141482F6415BE73EEB07E694E19AAC6CC8ACF3A18DE1B09C82E791864FF2A"
+    },
+    {
+      "path": "js/theme.js",
+      "sha256": "6200A39C70CB1C6BA77B709AEA196249A8EBB34E9C56723234DA1D84FA8D01D7"
+    },
+    {
+      "path": "js/time-parser.js",
+      "sha256": "913F6CFD1F357A5D168CC87FC276509AD7A98396F2181C327DEFCA6310482CD6"
+    },
+    {
+      "path": "styles.css",
+      "sha256": "25D6A1D44169683CC7644A12697F8D9B401FBFB2CCEC3D165A31ADCE36D32173"
+    }
+  ]
+}

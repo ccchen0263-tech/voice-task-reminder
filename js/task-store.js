@@ -1,3 +1,7 @@
+import { normalizeTaskCategory } from './task-view.js';
+import { normalizeDestination } from './destinations.js';
+import { normalizeRepeat, REPEAT_OPTIONS } from './recurrence.js';
+
 export const STORAGE_KEY = 'voice-task-reminder.tasks.v1';
 
 /** Accept complete ISO timestamps and reject dates such as February 30. */
@@ -20,7 +24,8 @@ function isoTimestamp(value) {
 }
 
 function safeCoordinate(value, min, max) {
-  if (value === null || value === undefined || value === '') return null;
+  if ((typeof value !== 'number' && typeof value !== 'string')
+      || (typeof value === 'string' && !value.trim())) return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= min && number <= max ? number : null;
 }
@@ -80,20 +85,55 @@ function inspectTasks(value) {
     if (attachmentResult.invalid) issues += 1;
     const location = typeof item.location === 'string' ? item.location.trim().slice(0, 300) : '';
     const locationAddress = typeof item.locationAddress === 'string' ? item.locationAddress.trim().slice(0, 400) : '';
-    tasks.push({
+    const notes = typeof item.notes === 'string' ? item.notes.slice(0, 2000) : '';
+    if ((item.notes != null && typeof item.notes !== 'string') || (typeof item.notes === 'string' && item.notes.length > 2000)) issues += 1;
+    const repeat = normalizeRepeat(item.repeat);
+    const destination = normalizeDestination(item.destination);
+    if (item.destination != null && !destination) issues += 1;
+    if (item.repeat !== undefined && item.repeat !== 'once' && !REPEAT_OPTIONS.some(option => option.value === item.repeat)) issues += 1;
+    if (repeat !== 'none' && !reminderAt) issues += 1;
+    const normalized = {
       id,
       title: item.title.trim(),
       originalInput: item.originalInput,
       reminderAt,
       completed: item.completed,
       createdAt,
+      category: normalizeTaskCategory(item.category),
+      notes,
+      repeat,
       mode: 'personal',
       location,
       locationAddress,
       locationLat: safeCoordinate(item.locationLat, -90, 90),
       locationLng: safeCoordinate(item.locationLng, -180, 180),
       attachments: attachmentResult.attachments,
-    });
+    };
+    if (destination) normalized.destination = destination;
+    else if (item.destination === null) normalized.destination = null;
+    if (repeat !== 'none') {
+      const seriesId = typeof item.seriesId === 'string' && item.seriesId.trim() ? item.seriesId.trim() : id;
+      if (item.seriesId !== undefined && (typeof item.seriesId !== 'string' || !item.seriesId.trim())) issues += 1;
+      normalized.seriesId = seriesId;
+      if (repeat === 'monthly' || repeat === 'yearly') {
+        const validDay = Number.isInteger(item.repeatDay) && item.repeatDay >= 1 && item.repeatDay <= 31;
+        if (item.repeatDay !== undefined && !validDay) issues += 1;
+        if (reminderAt) normalized.repeatDay = validDay ? item.repeatDay : new Date(reminderAt).getDate();
+      }
+      if (repeat === 'yearly') {
+        const validMonth = Number.isInteger(item.repeatMonth) && item.repeatMonth >= 1 && item.repeatMonth <= 12;
+        if (item.repeatMonth !== undefined && !validMonth) issues += 1;
+        if (reminderAt) normalized.repeatMonth = validMonth ? item.repeatMonth : new Date(reminderAt).getMonth() + 1;
+      }
+    }
+    // Keep generation history even when a child is moved to memo or stops repeating.
+    if (item.repeatParentId !== undefined) {
+      if (typeof item.repeatParentId === 'string' && item.repeatParentId.trim()) normalized.repeatParentId = item.repeatParentId.trim();
+      else issues += 1;
+    }
+    const updatedAt = isoTimestamp(item.updatedAt);
+    if (updatedAt) normalized.updatedAt = updatedAt;
+    tasks.push(normalized);
   }
   return { tasks, issues };
 }
