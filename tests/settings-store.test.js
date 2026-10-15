@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { DEFAULT_SETTINGS, SETTINGS_KEY, loadSettings, normalizeSettings, saveSettings } from '../js/settings-store.js';
 
 function memoryStorage(raw = null) {
+  let writes = 0;
   return {
     getItem(key) { assert.equal(key, SETTINGS_KEY); return raw; },
-    setItem(key, value) { assert.equal(key, SETTINGS_KEY); raw = value; },
+    setItem(key, value) { assert.equal(key, SETTINGS_KEY); raw = value; writes += 1; },
     get raw() { return raw; },
+    get writes() { return writes; },
   };
 }
 
@@ -120,10 +122,10 @@ test('Legacy settings gain an empty local Google label list while existing prefe
   const storage = memoryStorage(raw);
   const loaded = loadSettings(storage);
   assert.equal(loaded.error, null);
-  assert.deepEqual(loaded.settings, { ...legacy, googleDestinationLabels: [] });
+  assert.deepEqual(loaded.settings, { ...legacy, googleDestinationLabels: [], preferredDestinationId: 'local' });
   assert.equal(storage.raw, raw, 'Reading optional defaults never rewrites legacy settings');
   assert.equal(saveSettings(loaded.settings, storage).ok, true);
-  assert.deepEqual(loadSettings(storage).settings, { ...legacy, googleDestinationLabels: [] });
+  assert.deepEqual(loadSettings(storage).settings, { ...legacy, googleDestinationLabels: [], preferredDestinationId: 'local' });
 });
 
 test('Local Google names persist without external calendar IDs or disturbing reminder settings', () => {
@@ -161,4 +163,116 @@ test('Reading malformed or future-source settings labels filters them without re
   assert.deepEqual(loaded.settings.googleDestinationLabels, [valid]);
   assert.equal(loaded.settings.calendarTarget, 'google');
   assert.equal(storage.raw, raw);
+});
+
+test('fresh preferences default to local without writing storage or guessing from calendarTarget', () => {
+  const storage = memoryStorage();
+  const loaded = loadSettings(storage);
+  assert.equal(loaded.settings.preferredDestinationId, 'local');
+  assert.equal(loaded.destinationWarning, null);
+  assert.equal(storage.raw, null);
+  assert.equal(storage.writes, 0);
+  for (const calendarTarget of ['google', 'apple', 'local']) {
+    const raw = JSON.stringify({ calendarTarget });
+    const legacyStorage = memoryStorage(raw);
+    const legacy = loadSettings(legacyStorage);
+    assert.equal(legacy.settings.calendarTarget, calendarTarget);
+    assert.equal(legacy.settings.preferredDestinationId, 'local');
+    assert.equal(legacy.destinationWarning, null);
+    assert.equal(legacyStorage.raw, raw);
+    assert.equal(legacyStorage.writes, 0);
+  }
+});
+
+test('preferred built-in Google, Apple and named Google destinations survive save and reload', () => {
+  const label = { id: 'google-work', provider: 'google', name: '工作', source: 'local-label' };
+  for (const preferredDestinationId of ['local', 'google-draft', 'apple', label.id]) {
+    const storage = memoryStorage();
+    const preferences = { preferredDestinationId, googleDestinationLabels: [label], pageAlertsEnabled: false, calendarAlarmMinutes: 10 };
+    assert.equal(saveSettings(preferences, storage).ok, true);
+    const loaded = loadSettings(storage);
+    assert.equal(loaded.settings.preferredDestinationId, preferredDestinationId);
+    assert.deepEqual(loaded.settings.googleDestinationLabels, [label]);
+    assert.equal(loaded.settings.pageAlertsEnabled, false);
+    assert.equal(loaded.settings.calendarAlarmMinutes, 10);
+    assert.equal(loaded.destinationWarning, null);
+    assert.equal(storage.writes, 1);
+    assert.equal(loadSettings(storage).settings.preferredDestinationId, preferredDestinationId);
+    assert.equal(storage.writes, 1, 'Reload must never mutate preferences');
+  }
+});
+
+test('dangling preferred destination IDs warn and fall back to local without overwriting raw settings', () => {
+  for (const preferredDestinationId of ['removed-label', 'remote-calendar-id', 'google-work']) {
+    const raw = JSON.stringify({ preferredDestinationId, googleDestinationLabels: [] });
+    const storage = memoryStorage(raw);
+    const loaded = loadSettings(storage);
+    assert.equal(loaded.settings.preferredDestinationId, 'local');
+    assert.equal(loaded.error, null);
+    assert.equal(loaded.destinationWarning, '上次的目的地已不存在，已改用本機任務，請重新選擇。');
+    assert.equal(storage.raw, raw);
+    assert.equal(storage.writes, 0);
+  }
+});
+
+test('removing a selected local Google label normalizes preference to local and leaves built-ins selectable', () => {
+  const label = { id: 'google-work', provider: 'google', name: '工作', source: 'local-label' };
+  const before = normalizeSettings({ preferredDestinationId: label.id, googleDestinationLabels: [label] });
+  const deleted = normalizeSettings({ ...before, googleDestinationLabels: [] });
+  assert.equal(deleted.preferredDestinationId, 'local');
+  assert.equal(before.preferredDestinationId, label.id);
+  assert.deepEqual(before.googleDestinationLabels, [label]);
+  const storage = memoryStorage();
+  assert.equal(saveSettings(deleted, storage).ok, true);
+  assert.equal(loadSettings(storage).settings.preferredDestinationId, 'local');
+  assert.equal(loadSettings(storage).destinationWarning, null, 'Explicitly saving a valid local fallback needs no stale-choice warning');
+  assert.equal(normalizeSettings({ preferredDestinationId: 'google-draft', googleDestinationLabels: [] }).preferredDestinationId, 'google-draft');
+});
+
+test('missing, empty or malformed preference fields never invent an external destination', () => {
+  for (const preferredDestinationId of [undefined, null, '', '  ', 12, false, {}, []]) {
+    const raw = JSON.stringify({ preferredDestinationId, calendarTarget: 'google' });
+    const storage = memoryStorage(raw);
+    const loaded = loadSettings(storage);
+    assert.equal(loaded.settings.preferredDestinationId, 'local');
+    assert.equal(loaded.destinationWarning, null);
+    assert.equal(storage.raw, raw);
+    assert.equal(storage.writes, 0);
+  }
+  assert.equal(normalizeSettings({ preferredDestinationId: ' google-draft ' }).preferredDestinationId, 'google-draft');
+});
+
+test('a preference cannot promote an OAuth source, a reserved label ID or an authenticated calendar field', () => {
+  const raw = JSON.stringify({
+    preferredDestinationId: 'remote-work',
+    googleDestinationLabels: [
+      { id: 'remote-work', provider: 'google', name: '工作', source: 'oauth', calendarId: 'private-calendar-id' },
+      { id: 'google-draft', provider: 'google', name: '假的內建', source: 'local-label' },
+      { id: 'apple', provider: 'google', name: '假的Apple', source: 'local-label' },
+    ],
+  });
+  const storage = memoryStorage(raw);
+  const loaded = loadSettings(storage);
+  assert.equal(loaded.settings.preferredDestinationId, 'local');
+  assert.deepEqual(loaded.settings.googleDestinationLabels, []);
+  assert.ok(loaded.destinationWarning);
+  assert.equal(storage.raw, raw);
+  assert.equal(storage.writes, 0);
+});
+
+test('quota failure preserves the previous preferred destination and labels instead of writing empty data', () => {
+  const previous = JSON.stringify({ preferredDestinationId: 'apple', googleDestinationLabels: [] });
+  const backing = memoryStorage(previous);
+  let attempts = 0;
+  const fullStorage = {
+    getItem: backing.getItem,
+    setItem() { attempts += 1; throw Object.assign(new Error('full'), { name: 'QuotaExceededError' }); },
+  };
+  const result = saveSettings({ preferredDestinationId: 'google-draft' }, fullStorage);
+  assert.equal(result.ok, false);
+  assert.ok(result.error);
+  assert.equal(attempts, 1);
+  assert.equal(backing.raw, previous);
+  assert.equal(loadSettings(backing).settings.preferredDestinationId, 'apple');
+  assert.equal(backing.writes, 0);
 });

@@ -23,14 +23,17 @@
     <section class="composer" aria-labelledby="composer-title">
       <div class="composer-heading"><h2 id="composer-title">記下下一件事</h2><span class="local-note"><span class="status-dot" aria-hidden="true"></span>個人模式・本機儲存</span></div>
       <form id="task-form">
-        <div class="field-group destination-picker"><label for="task-destination">本次目的地（錄音前確認）</label><select id="task-destination" aria-describedby="destination-hint"></select><p id="destination-hint" class="field-hint"></p></div>
         <label for="task-input" class="sr-only">待辦事項</label>
         <div class="input-row">
           <textarea id="task-input" placeholder="請輸入待辦事項" rows="2" maxlength="1000" aria-describedby="input-hint" required></textarea>
-          <button id="voice-button" class="button voice-button" type="button" aria-pressed="false">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/></svg>
-            <span id="voice-label">語音輸入</span>
-          </button>
+          <div class="capture-controls" role="group" aria-label="輸入方式與目的地">
+            <div class="field-group destination-picker"><label for="task-destination">本次目的地（錄音前確認）</label><select id="task-destination" aria-describedby="destination-hint"></select></div>
+            <button id="voice-button" class="button voice-button" type="button" aria-pressed="false">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/></svg>
+              <span id="voice-label">語音輸入</span>
+            </button>
+            <p id="destination-hint" class="field-hint capture-hint"></p>
+          </div>
         </div>
         <p id="input-hint" class="hint">說出時間與待辦事項，也可用鍵盤麥克風。先記下，時間確定後再安排。</p>
         <p id="speech-status" class="hint speech-status" role="status" aria-live="polite"></p>

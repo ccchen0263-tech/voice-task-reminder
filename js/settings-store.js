@@ -1,4 +1,4 @@
-import { normalizeDestinationLabels } from './destinations.js';
+import { normalizeDestinationLabels, resolveDestination } from './destinations.js';
 
 export const SETTINGS_KEY = 'voice-task-reminder.settings.v1';
 
@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   systemNotifications: false,
   calendarAlarmMinutes: null,
   googleDestinationLabels: [],
+  preferredDestinationId: 'local',
 });
 
 const CALENDAR_TARGETS = new Set(['google', 'apple', 'local']);
@@ -42,6 +43,9 @@ export function normalizeSettings(value) {
   const commonPlaces = Array.isArray(source.commonPlaces)
     ? source.commonPlaces.map(normalizePlace).filter(Boolean).slice(0, 20)
     : [];
+  const googleDestinationLabels = normalizeDestinationLabels(source.googleDestinationLabels);
+  const preferredId = typeof source.preferredDestinationId === 'string' ? source.preferredDestinationId.trim() : '';
+  const preferredDestinationId = resolveDestination(preferredId, { googleDestinationLabels })?.id || DEFAULT_SETTINGS.preferredDestinationId;
   return {
     mode: 'personal',
     calendarTarget: CALENDAR_TARGETS.has(source.calendarTarget) ? source.calendarTarget : DEFAULT_SETTINGS.calendarTarget,
@@ -50,7 +54,8 @@ export function normalizeSettings(value) {
     soundEnabled: typeof source.soundEnabled === 'boolean' ? source.soundEnabled : DEFAULT_SETTINGS.soundEnabled,
     systemNotifications: typeof source.systemNotifications === 'boolean' ? source.systemNotifications : DEFAULT_SETTINGS.systemNotifications,
     calendarAlarmMinutes: CALENDAR_ALARM_MINUTES.has(source.calendarAlarmMinutes) ? source.calendarAlarmMinutes : DEFAULT_SETTINGS.calendarAlarmMinutes,
-    googleDestinationLabels: normalizeDestinationLabels(source.googleDestinationLabels),
+    googleDestinationLabels,
+    preferredDestinationId,
   };
 }
 
@@ -59,14 +64,19 @@ export function loadSettings(storage) {
     storage ??= globalThis.localStorage;
     if (!storage || typeof storage.getItem !== 'function') throw new Error('Storage unavailable');
     const raw = storage.getItem(SETTINGS_KEY);
-    if (raw === null) return { settings: normalizeSettings(DEFAULT_SETTINGS), error: null };
+    if (raw === null) return { settings: normalizeSettings(DEFAULT_SETTINGS), error: null, destinationWarning: null };
     try {
-      return { settings: normalizeSettings(JSON.parse(raw)), error: null };
+      const source = JSON.parse(raw);
+      const settings = normalizeSettings(source);
+      const preferredId = typeof source?.preferredDestinationId === 'string' ? source.preferredDestinationId.trim() : '';
+      const destinationWarning = preferredId && !resolveDestination(preferredId, settings)
+        ? '上次的目的地已不存在，已改用本機任務，請重新選擇。' : null;
+      return { settings, error: null, destinationWarning };
     } catch {
-      return { settings: normalizeSettings(DEFAULT_SETTINGS), error: '偏好設定無法讀取，已使用預設值；原始設定未覆寫。' };
+      return { settings: normalizeSettings(DEFAULT_SETTINGS), error: '偏好設定無法讀取，已使用預設值；原始設定未覆寫。', destinationWarning: null };
     }
   } catch {
-    return { settings: normalizeSettings(DEFAULT_SETTINGS), error: '無法讀取本機偏好設定；仍可使用目前頁面。' };
+    return { settings: normalizeSettings(DEFAULT_SETTINGS), error: '無法讀取本機偏好設定；仍可使用目前頁面。', destinationWarning: null };
   }
 }
 

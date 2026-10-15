@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { parseTaskInput } from '../js/time-parser.js';
 import * as taskView from '../js/task-view.js';
 import * as planner from '../js/planner.js';
-import { SETTINGS_KEY, loadSettings, saveSettings } from '../js/settings-store.js';
+import { SETTINGS_KEY, loadSettings, normalizeSettings, saveSettings } from '../js/settings-store.js';
 import { STORAGE_KEY, classifyTasks, loadTasks, saveTasks } from '../js/task-store.js';
 import * as recurrence from '../js/recurrence.js';
 import { createReminderTracker, getOverdueTasks } from '../js/reminders.js';
@@ -13,6 +13,7 @@ import { setupSpeechInput } from '../js/speech-input.js';
 import { setupTheme } from '../js/theme.js';
 import * as destinations from '../js/destinations.js';
 import { createGoogleCalendarUrl, createMapUrl } from '../js/calendar.js';
+import { validateAttachment as validateAttachmentFile } from '../js/attachment-store.js';
 
 // Exercise the actual App callback registration without a browser or microphone.
 // Single-line imports are removed so collaborators can be supplied below.
@@ -20,23 +21,35 @@ const source = fs.readFileSync(new URL('../js/app.js', import.meta.url), 'utf8')
   .replace(/^import .*;\r?\n/gm, '');
 
 function createHarness({
-  supported = true, initialTasks = [], initialSettings = {}, storedTaskJSON, attachmentRecords = [],
-  now = Date.now(), audio = false, notifications = false,
+  supported = true, initialTasks = [], initialSettings = {}, storedTaskJSON, storedSettingsJSON, attachmentRecords = [],
+  now = Date.now(), audio = false, notifications = false, settingsSaveFailure = false, taskSaveFailure = false,
+  attachmentSave = async () => [], geolocation = false,
 } = {}) {
   const nodes = new Map();
   const parsedInputs = [];
   const storageValues = new Map();
   const storageWrites = [];
   const calendarDownloads = [];
+  const locationRequests = [];
   const channelCalls = { audioContexts: 0, resumes: 0, tones: 0, notificationRequests: 0, notifications: [] };
   let clockTime = now;
+  let rejectSettingsWrites = false;
+  let rejectTaskWrites = false;
   const memoryStorage = {
     getItem: key => storageValues.get(key) ?? null,
-    setItem(key, value) { storageValues.set(key, String(value)); storageWrites.push({ key, value: String(value) }); },
+    setItem(key, value) {
+      if ((key === SETTINGS_KEY && rejectSettingsWrites) || (key === STORAGE_KEY && rejectTaskWrites)) {
+        throw Object.assign(new Error('Synthetic storage failure'), { name: 'QuotaExceededError' });
+      }
+      storageValues.set(key, String(value)); storageWrites.push({ key, value: String(value) });
+    },
   };
   assert.equal(saveTasks(initialTasks, memoryStorage).ok, true, 'Synthetic task fixtures must be valid');
   assert.equal(saveSettings(initialSettings, memoryStorage).ok, true);
   if (storedTaskJSON !== undefined) memoryStorage.setItem(STORAGE_KEY, storedTaskJSON);
+  if (storedSettingsJSON !== undefined) memoryStorage.setItem(SETTINGS_KEY, storedSettingsJSON);
+  rejectSettingsWrites = settingsSaveFailure;
+  rejectTaskWrites = taskSaveFailure;
   const windowListeners = new Map();
   const timers = new Map();
   const intervals = new Map();
@@ -169,6 +182,7 @@ function createHarness({
       focus() {},
       scrollIntoView() {},
       matches(matchSelector) {
+        if (matchSelector.includes(',')) return matchSelector.split(',').some(part => node.matches(part.trim()));
         if (matchSelector.startsWith('.')) return classes.has(matchSelector.slice(1));
         const dataMatch = /^\[data-([\w-]+)(?:="([^"]*)")?\]$/.exec(matchSelector);
         if (dataMatch) {
@@ -257,6 +271,18 @@ function createHarness({
   getNode('#category-filter').value = 'all';
   getNode('#include-completed').checked = true;
   getNode('#task-template').content = { cloneNode: createTaskFragment };
+  const formControls = [
+    ['#task-input', 'textarea'], ['#voice-button', 'button'], ['#task-destination', 'select'],
+    ['#task-time', 'input'], ['#task-no-time', 'input'], ['#task-category', 'select'],
+    ['#task-repeat', 'select'], ['#task-notes', 'textarea'], ['#task-location', 'input'],
+    ['#location-button', 'button'], ['#attachment-input', 'input'], ['#add-button', 'button'],
+  ].map(([selector, tag]) => {
+    const control = getNode(selector); control.tagName = tag.toUpperCase();
+    if (tag === 'input') Object.setPrototypeOf(control, HarnessInput.prototype);
+    return control;
+  });
+  getNode('#task-form').elements = formControls;
+  getNode('#task-form').append(...formControls);
   const media = { matches: false, addEventListener() {}, removeEventListener() {} };
 
   const context = {
@@ -283,6 +309,11 @@ function createHarness({
       ...(notifications ? { Notification: HarnessNotification } : {}),
       ...(supported ? { SpeechRecognition: Recognition } : {}),
     },
+    navigator: {
+      ...(geolocation ? { geolocation: {
+        getCurrentPosition(success, error, options) { locationRequests.push({ success, error, options }); },
+      } } : {}),
+    },
     document: {
       querySelector: getNode, querySelectorAll, addEventListener() {},
       documentElement: getNode('document-root'),
@@ -307,7 +338,7 @@ function createHarness({
     parseTaskInput(input) { parsedInputs.push(input); return parseTaskInput(input); },
     createGoogleCalendarUrl, createMapUrl,
     downloadICS(task, options) { calendarDownloads.push(JSON.parse(JSON.stringify({ task, options }))); },
-    STORAGE_KEY,
+    STORAGE_KEY, SETTINGS_KEY, normalizeSettings,
     loadTasks: () => loadTasks(memoryStorage),
     saveTasks: tasks => saveTasks(tasks, memoryStorage),
     classifyTasks,
@@ -316,9 +347,9 @@ function createHarness({
     deleteAttachments: async ids => { attachmentCalls.delete.push(Array.from(ids)); },
     getAttachment: async () => null,
     listAttachments: async () => { attachmentCalls.list += 1; return attachmentRecords; },
-    saveAttachmentBatch: async () => [],
+    saveAttachmentBatch: attachmentSave,
     sanitizeAttachmentName: name => String(name),
-    validateAttachment: () => ({ ok: false, error: 'test' }),
+    validateAttachment: validateAttachmentFile,
     MAX_ATTACHMENTS_PER_TASK: 3,
   };
 
@@ -335,11 +366,14 @@ function createHarness({
     return null;
   }
   return {
-    getNode, getTaskRow, get recognition() { return recognition; }, recognitions, parsedInputs, attachmentCalls, channelCalls, calendarDownloads,
+    getNode, getTaskRow, get recognition() { return recognition; }, recognitions, parsedInputs, attachmentCalls, channelCalls, calendarDownloads, locationRequests,
     getSavedTasks: () => JSON.parse(memoryStorage.getItem(STORAGE_KEY)),
     getSavedSettings: () => JSON.parse(memoryStorage.getItem(SETTINGS_KEY)),
     getTaskWriteCount: () => storageWrites.filter(write => write.key === STORAGE_KEY).length,
+    getSettingsWriteCount: () => storageWrites.filter(write => write.key === SETTINGS_KEY).length,
     getStoredJSON: () => memoryStorage.getItem(STORAGE_KEY),
+    getStoredSettingsJSON: () => memoryStorage.getItem(SETTINGS_KEY),
+    rejectTaskWrites(value) { rejectTaskWrites = value; },
     updateTasksFromOtherTab(nextTasks, { notify = true } = {}) {
       assert.equal(saveTasks(nextTasks, memoryStorage).ok, true);
       if (notify) for (const listener of windowListeners.get('storage') ?? []) listener({ key: STORAGE_KEY });
@@ -926,7 +960,7 @@ test('Consecutive voice tasks use fresh sessions and preserve their own chosen d
   assert.equal(app.getNode('#task-destination').disabled, false);
   await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
   assert.deepEqual(app.getSavedTasks()[0].destination, work);
-  assert.equal(app.getNode('#task-destination').value, 'local');
+  assert.equal(app.getNode('#task-destination').value, work.id);
 
   app.getNode('#task-destination').value = 'apple';
   app.getNode('#task-destination').dispatchEvent({ type: 'change' });
@@ -1025,4 +1059,322 @@ test('Editing preserves unspecified legacy destinations until an explicit per-ta
   assert.deepEqual(app.getSavedTasks()[0].destination, { id: 'apple', provider: 'apple', name: 'Apple 行事曆匯出', source: 'builtin' });
   assert.equal(app.getTaskRow(legacy.id).querySelector('.apple-button').hidden, false);
   assert.equal(app.getTaskRow(legacy.id).querySelector('.google-button').hidden, true);
+});
+
+function chooseDestination(app, id) {
+  app.getNode('#task-destination').value = id;
+  app.getNode('#task-destination').dispatchEvent({ type: 'change' });
+}
+
+function visibleText(node) {
+  if (!node || node.hidden) return '';
+  return [node.textContent, ...(node.children || []).map(visibleText)].join(' ');
+}
+
+test('The preferred destination survives consecutive additions and a fresh App initialization', async () => {
+  const app = createHarness({ initialSettings: { preferredDestinationId: 'apple' } });
+  assert.equal(app.getNode('#task-destination').value, 'apple');
+  chooseDestination(app, 'google-draft');
+  assert.equal(app.getSavedSettings().preferredDestinationId, 'google-draft');
+  for (const text of ['十分鐘後提醒我喝水', '明早提醒我買早餐']) {
+    app.getNode('#task-input').value = text;
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    assert.equal(app.getNode('#task-destination').value, 'google-draft');
+  }
+  assert.equal(app.getSavedTasks().length, 2);
+  for (const task of app.getSavedTasks()) {
+    assert.deepEqual(task.destination, destinations.resolveDestination('google-draft', {}));
+  }
+  const refreshed = createHarness({ initialTasks: app.getSavedTasks(), storedSettingsJSON: app.getStoredSettingsJSON() });
+  assert.equal(refreshed.getNode('#task-destination').value, 'google-draft');
+  assert.match(refreshed.getNode('#destination-hint').textContent, /Google.*未連線/);
+});
+
+test('A missing stored preference falls back visibly without rewriting the original settings on load', () => {
+  const raw = JSON.stringify({ ...normalizeSettings({}), preferredDestinationId: 'deleted-label' });
+  const app = createHarness({ storedSettingsJSON: raw });
+  assert.equal(app.getNode('#task-destination').value, 'local');
+  assert.match(app.getNode('#destination-hint').textContent, /不存在.*本機/);
+  assert.equal(app.getStoredSettingsJSON(), raw);
+});
+
+test('Deleting the selected local label falls back to local for the next task and persisted preference', async () => {
+  const work = googleDestination();
+  const app = createHarness({ initialSettings: { googleDestinationLabels: [work], preferredDestinationId: work.id } });
+  assert.equal(app.getNode('#task-destination').value, work.id);
+  const remove = app.getNode('#destination-list').querySelector('[data-destination-id]');
+  app.getNode('#destination-list').dispatchEvent({ type: 'click', target: remove });
+  assert.equal(app.getSavedSettings().preferredDestinationId, 'local');
+  assert.equal(app.getNode('#task-destination').value, 'local');
+  assert.match(app.getNode('#destination-hint').textContent, /不存在.*本機/);
+  app.getNode('#task-input').value = '先存一筆備忘';
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(app.getSavedTasks()[0].destination.provider, 'local');
+});
+
+test('A recording snapshot survives label deletion and duplicate start before the next task falls back', async () => {
+  const work = googleDestination();
+  const app = createHarness({ initialSettings: { googleDestinationLabels: [work], preferredDestinationId: work.id } });
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  const recognition = app.recognition;
+  // The first active callback is emitted before the browser sends onstart.
+  const remove = app.getNode('#destination-list').querySelector('[data-destination-id]');
+  app.getNode('#destination-list').dispatchEvent({ type: 'click', target: remove });
+  assert.equal(app.getSavedSettings().preferredDestinationId, 'local');
+  assert.equal(app.getNode('#task-destination').value, work.id);
+  recognition.onstart();
+  recognition.onstart();
+  assert.equal(app.getNode('#task-destination').value, work.id);
+  recognition.onresult(finalResult('十分鐘後提醒我喝水'));
+  recognition.onerror({ error: 'network' });
+  assert.equal(app.getNode('#task-destination').value, work.id);
+  recognition.onend();
+  assert.equal(app.getNode('#task-destination').value, work.id);
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.deepEqual(app.getSavedTasks()[0].destination, work);
+  assert.equal(app.getNode('#task-destination').value, 'local');
+  app.getNode('#task-input').value = '下一輪備忘';
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(app.getSavedTasks()[1].destination.provider, 'local');
+});
+
+test('Destination changes during listening are rejected without saving a different preference', async () => {
+  const work = googleDestination();
+  const app = createHarness({ initialSettings: { googleDestinationLabels: [work], preferredDestinationId: work.id } });
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  const recognition = app.recognition;
+  recognition.onstart();
+  const writes = app.getSettingsWriteCount();
+  chooseDestination(app, 'apple');
+  assert.equal(app.getNode('#task-destination').value, work.id);
+  assert.equal(app.getSavedSettings().preferredDestinationId, work.id);
+  assert.equal(app.getSettingsWriteCount(), writes);
+  recognition.onresult(finalResult('明早提醒我買早餐'));
+  recognition.onend();
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.deepEqual(app.getSavedTasks()[0].destination, work);
+});
+
+test('An error followed by manual destination change and delayed end cannot reroute the next voice task', async () => {
+  const work = googleDestination();
+  const app = createHarness({ initialSettings: { googleDestinationLabels: [work], preferredDestinationId: work.id } });
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  const first = app.recognition;
+  first.onstart();
+  first.onerror({ error: 'network' });
+  chooseDestination(app, 'apple');
+  assert.equal(app.getNode('#task-destination').value, 'apple');
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  assert.equal(app.recognitions.length, 1, 'The old recognizer must finish before another session starts');
+  first.onend();
+  assert.equal(app.getNode('#task-destination').value, 'apple');
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  const second = app.recognition;
+  second.onstart();
+  first.onresult(finalResult('舊的錯誤備忘'));
+  first.onend();
+  second.onresult(finalResult('明早提醒我買早餐'));
+  second.onend();
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(app.getSavedTasks().length, 1);
+  assert.equal(app.getSavedTasks()[0].destination.provider, 'apple');
+  assert.equal(app.getSavedTasks()[0].title, '買早餐');
+});
+
+test('Failed preference writes keep this page selection across additions and show the persistence warning', async () => {
+  const app = createHarness({ initialSettings: { preferredDestinationId: 'local' }, settingsSaveFailure: true });
+  chooseDestination(app, 'google-draft');
+  assert.equal(app.getNode('#task-destination').value, 'google-draft');
+  assert.equal(app.getSavedSettings().preferredDestinationId, 'local');
+  assert.match(app.getNode('#destination-hint').textContent, /本頁.*偏好未儲存/);
+  for (const text of ['第一則備忘', '第二則備忘']) {
+    app.getNode('#task-input').value = text;
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    assert.equal(app.getNode('#task-destination').value, 'google-draft');
+    assert.equal(app.getNode('#storage-warning').hidden, false);
+    assert.match(app.getNode('#storage-warning').textContent, /偏好設定未儲存/);
+  }
+  assert.ok(app.getSavedTasks().every(task => task.destination.id === 'google-draft'));
+  const refreshed = createHarness({ initialTasks: app.getSavedTasks(), storedSettingsJSON: app.getStoredSettingsJSON() });
+  assert.equal(refreshed.getNode('#task-destination').value, 'local');
+});
+
+test('Google and Apple memos keep their selected destinations and visibly require scheduling before export', async () => {
+  for (const destinationId of ['google-draft', 'apple']) {
+    const app = createHarness({ initialSettings: { preferredDestinationId: destinationId } });
+    app.getNode('#task-input').value = '睡前提醒我吃藥';
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    const task = app.getSavedTasks()[0];
+    assert.equal(task.reminderAt, null);
+    assert.equal(task.destination.id, destinationId);
+    const row = app.getTaskRow(task.id);
+    assert.equal(row.querySelector('.calendar-actions').hidden, true);
+    assert.match(visibleText(row), /保留目的地.*設定提醒時間/);
+  }
+});
+
+test('Editing one task destination does not alter the preferred destination or the next draft', () => {
+  const task = syntheticTask({ destination: destinations.resolveDestination('local', {}) });
+  const app = createHarness({ initialTasks: [task], initialSettings: { preferredDestinationId: 'google-draft' } });
+  app.getNode('#task-input').value = '下一則尚未儲存的備忘';
+  const writes = app.getSettingsWriteCount();
+  editThroughRegisteredCallbacks(app, task.id, { destination: 'apple' });
+  assert.equal(app.getSavedTasks()[0].destination.id, 'apple');
+  assert.equal(app.getSavedSettings().preferredDestinationId, 'google-draft');
+  assert.equal(app.getSettingsWriteCount(), writes);
+  assert.equal(app.getNode('#task-destination').value, 'google-draft');
+  assert.equal(app.getNode('#task-input').value, '下一則尚未儲存的備忘');
+});
+
+test('A pending submission locks the composer and voice until completion and refuses duplicate submits', async () => {
+  let finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  let calls = 0;
+  const app = createHarness({
+    initialSettings: { preferredDestinationId: 'google-draft' },
+    attachmentSave: () => { calls += 1; return calls === 1 ? pending : Promise.resolve([]); },
+  });
+  app.getNode('#task-input').value = '第一則備忘';
+  app.getNode('#task-notes').value = '需要保留的備註';
+  const submitting = app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  for (const selector of ['#task-input', '#task-notes', '#task-destination', '#voice-button', '#add-button', '#attachment-input']) {
+    assert.equal(app.getNode(selector).disabled, true, `${selector} must be locked while saving`);
+  }
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  assert.equal(calls, 1);
+  assert.equal(app.recognitions.length, 0);
+  finish([]);
+  await submitting;
+  assert.equal(app.getSavedTasks().length, 1);
+  assert.equal(app.getSavedTasks()[0].notes, '需要保留的備註');
+  for (const selector of ['#task-input', '#task-notes', '#voice-button', '#add-button']) assert.equal(app.getNode(selector).disabled, false);
+  assert.equal(app.getNode('#task-destination').value, 'google-draft');
+  app.getNode('#task-input').value = '第二則備忘';
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.deepEqual(app.getSavedTasks().map(task => task.title), ['第一則備忘', '第二則備忘']);
+});
+
+test('A failed submission retains the whole draft and restores controls without enabling unsupported speech', async () => {
+  const app = createHarness({ supported: false, taskSaveFailure: true, initialSettings: { preferredDestinationId: 'apple' } });
+  app.getNode('#task-input').value = '尚未保存的備忘';
+  app.getNode('#task-notes').value = '失敗時請保留';
+  app.getNode('#task-no-time').checked = true;
+  app.getNode('#task-no-time').dispatchEvent({ type: 'change' });
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(app.getSavedTasks().length, 0);
+  assert.equal(app.getNode('#task-input').value, '尚未保存的備忘');
+  assert.equal(app.getNode('#task-notes').value, '失敗時請保留');
+  assert.equal(app.getNode('#task-destination').value, 'apple');
+  assert.equal(app.getNode('#task-input').disabled, false);
+  assert.equal(app.getNode('#add-button').disabled, false);
+  assert.equal(app.getNode('#task-time').disabled, true);
+  assert.equal(app.getNode('#voice-button').disabled, true);
+  assert.match(app.getNode('#notification-text').textContent, /儲存失敗/);
+  app.rejectTaskWrites(false);
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(app.getSavedTasks()[0].title, '尚未保存的備忘');
+  assert.equal(app.getSavedTasks()[0].destination.id, 'apple');
+});
+
+function deliverLocation(request, kind, latitude = 25.033, longitude = 121.565) {
+  if (kind === 'success') request.success({ coords: { latitude, longitude } });
+  else request.error({ code: 1, message: 'Synthetic old location failure' });
+}
+
+test('Old location success and error callbacks cannot unlock a pending submission or refill the next draft', async () => {
+  for (const kind of ['success', 'error']) {
+    for (const phase of ['during-save', 'after-save']) {
+      let finish;
+      const pending = new Promise(resolve => { finish = resolve; });
+      const app = createHarness({ geolocation: true, attachmentSave: () => pending });
+      app.getNode('#task-input').value = '保留手動地點的備忘';
+      app.getNode('#task-location').value = '台北車站手動地址';
+      app.getNode('#location-button').dispatchEvent({ type: 'click' });
+      assert.equal(app.locationRequests.length, 1);
+      assert.equal(app.getNode('#location-button').disabled, true);
+      const request = app.locationRequests[0];
+      const submitting = app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+      assert.equal(app.getNode('#task-location').disabled, true);
+      assert.equal(app.getNode('#location-button').disabled, true);
+      if (phase === 'during-save') {
+        const message = app.getNode('#notification-text').textContent;
+        deliverLocation(request, kind);
+        assert.equal(app.getNode('#task-location').value, '台北車站手動地址');
+        assert.equal(app.getNode('#location-button').disabled, true);
+        assert.equal(app.getNode('#notification-text').textContent, message);
+      }
+      finish([]);
+      await submitting;
+      assert.equal(app.getSavedTasks()[0].locationAddress, '台北車站手動地址');
+      assert.equal(app.getSavedTasks()[0].locationLat, null);
+      assert.equal(app.getSavedTasks()[0].locationLng, null);
+      assert.equal(app.getNode('#location-button').disabled, false);
+      assert.equal(app.getNode('#task-location').value, '');
+      app.getNode('#task-input').value = '下一則尚未保存';
+      app.getNode('#task-location').value = '下一則的手動地址';
+      if (phase === 'after-save') {
+        const message = app.getNode('#notification-text').textContent;
+        deliverLocation(request, kind);
+        assert.equal(app.getNode('#notification-text').textContent, message);
+      }
+      assert.equal(app.getNode('#task-location').value, '下一則的手動地址');
+      assert.equal(app.getNode('#task-input').value, '下一則尚未保存');
+      assert.equal(app.getNode('#task-location').dataset.latitude, undefined);
+      assert.equal(app.getNode('#location-button').disabled, false);
+    }
+  }
+});
+
+test('An older invalidated location callback cannot finish or overwrite a newer location request', async () => {
+  for (const kind of ['success', 'error']) {
+    const app = createHarness({ geolocation: true });
+    app.getNode('#location-button').dispatchEvent({ type: 'click' });
+    const oldRequest = app.locationRequests[0];
+    app.getNode('#task-input').value = '先保存這則備忘';
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    app.getNode('#task-input').value = '新的尚未保存備忘';
+    app.getNode('#task-location').value = '新草稿地址';
+    app.getNode('#location-button').dispatchEvent({ type: 'click' });
+    assert.equal(app.locationRequests.length, 2);
+    const currentRequest = app.locationRequests[1];
+    const message = app.getNode('#notification-text').textContent;
+    deliverLocation(oldRequest, kind, 22.627, 120.301);
+    assert.equal(app.getNode('#location-button').disabled, true);
+    assert.equal(app.getNode('#task-location').value, '新草稿地址');
+    assert.equal(app.getNode('#notification-text').textContent, message);
+    deliverLocation(currentRequest, 'success', 24.147, 120.673);
+    assert.equal(app.getNode('#location-button').disabled, false);
+    assert.equal(app.getNode('#task-location').value, '目前位置（24.14700, 120.67300）');
+    assert.equal(app.getNode('#task-location').dataset.latitude, '24.147');
+    assert.equal(app.getNode('#task-location').dataset.longitude, '120.673');
+    assert.equal(app.getNode('#task-input').value, '新的尚未保存備忘');
+    assert.equal(app.getSavedTasks().length, 1);
+    assert.equal(app.getSavedTasks()[0].locationAddress, '');
+  }
+});
+
+test('An attachment draft cannot be removed while its task is being submitted', async () => {
+  let finish;
+  let draftsBeingSaved;
+  const pending = new Promise(resolve => { finish = resolve; });
+  const app = createHarness({ attachmentSave: (taskId, drafts) => { draftsBeingSaved = drafts; return pending; } });
+  const file = { name: '保留附件.txt', type: 'text/plain', size: 12 };
+  app.getNode('#attachment-input').files = [file];
+  app.getNode('#attachment-input').dispatchEvent({ type: 'change' });
+  const list = app.getNode('#attachment-draft-list');
+  assert.equal(list.children.length, 1);
+  const remove = list.querySelector('.remove-attachment');
+  app.getNode('#task-input').value = '保留附件的備忘';
+  const submitting = app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(remove.disabled, true);
+  list.dispatchEvent({ type: 'click', target: remove });
+  assert.equal(list.children.length, 1);
+  assert.equal(draftsBeingSaved.length, 1);
+  assert.equal(draftsBeingSaved[0].metadata.name, file.name);
+  finish([draftsBeingSaved[0].metadata.id]);
+  await submitting;
+  assert.equal(app.getSavedTasks()[0].attachments.length, 1);
+  assert.equal(app.getSavedTasks()[0].attachments[0].name, file.name);
+  assert.equal(list.children.length, 0);
 });

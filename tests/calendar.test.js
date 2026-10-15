@@ -324,11 +324,11 @@ test('floating repeat duration stays thirty minutes through a DST fold without a
 test('saved destination labels are descriptive only and never create unsupported Google destination parameters', () => {
   const labeled = { ...task, destination: { id: 'private-work', provider: 'google', name: '工作行事曆', source: 'local-label' } };
   const url = new URL(createGoogleCalendarUrl(labeled));
-  assert.ok(url.searchParams.get('details').includes('目的地：Google：工作行事曆（本機名稱，未連線）'));
+  assert.ok(url.searchParams.get('details').includes('目的地：Google 草稿：工作行事曆（本機名稱，未連線）'));
   assert.ok(url.searchParams.get('details').includes('請自行在草稿選擇實際行事曆'));
   for (const key of ['calendarId', 'cid', 'src', 'recur']) assert.equal(url.searchParams.has(key), false);
   const content = unfold(createICS(labeled));
-  assert.ok(content.includes('目的地：Google：工作行事曆（本機名稱，未連線）'));
+  assert.ok(content.includes('目的地：Google 草稿：工作行事曆（本機名稱，未連線）'));
   assert.equal(content.includes('\r\nCALENDAR-ID:'), false);
 });
 

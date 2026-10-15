@@ -1,7 +1,7 @@
 import { parseTaskInput } from './time-parser.js';
 import { createGoogleCalendarUrl, createMapUrl, downloadICS } from './calendar.js';
 import { STORAGE_KEY, loadTasks, saveTasks, classifyTasks } from './task-store.js';
-import { loadSettings, saveSettings } from './settings-store.js';
+import { SETTINGS_KEY, loadSettings, saveSettings, normalizeSettings } from './settings-store.js';
 import { TASK_CATEGORIES, filterTasks } from './task-view.js';
 import { getMonthDays, getWeekDays, shiftDateKey, toLocalDateKey, toDateTimeLocal, parseDateTimeLocal, shiftMonth } from './planner.js';
 import { REPEAT_OPTIONS, normalizeRepeat, repeatLabel, createNextOccurrence } from './recurrence.js';
@@ -64,7 +64,8 @@ const dateFormatter = new Intl.DateTimeFormat('zh-TW', {
   hour: '2-digit', minute: '2-digit', hour12: false,
 });
 let { tasks, error: loadError, readOnly } = loadTasks();
-let { settings, error: settingsError } = loadSettings();
+let { settings, error: settingsError, destinationWarning } = loadSettings();
+let destinationNotice = destinationWarning || '';
 const reminderTracker = createReminderTracker();
 reminderTracker.prime(tasks);
 let audioContext = null;
@@ -73,6 +74,8 @@ let attachmentDrafts = [];
 let attachmentObjectUrls = [];
 let dialogObjectUrl = null;
 let listening = false;
+let submitting = false;
+let locationRequestVersion = 0;
 let composing = false;
 let deletedTask = null;
 let notificationTimer;
@@ -216,7 +219,7 @@ function showNotification(message, canUndo = false) {
 function updateStorageWarning(message = loadError || settingsError) {
   warning.hidden = !message;
   warning.textContent = message ? `${message}${readOnly ? ' 已停用資料修改，原始儲存內容仍保留。' : ''}` : '';
-  addButton.disabled = readOnly || listening;
+  addButton.disabled = readOnly || listening || submitting;
   cleanupAttachmentsButton.disabled = readOnly;
 }
 
@@ -235,13 +238,21 @@ function renderDestinationSelector(select, current = null, allowBlank = false) {
 
 function updateDestinationHint() {
   const selected = recordingDestination?.id === taskDestination.value ? recordingDestination : resolveDestination(taskDestination.value, settings);
-  $('#destination-hint').textContent = `這次新增：${destinationLabel(selected)}。${selected?.provider === 'google' ? '只能開啟草稿或下載 ICS，尚未連線或指定寫入 Google。' : selected?.provider === 'apple' ? '下載後自行選行事曆匯入。' : '不匯出到外部行事曆。'}`;
+  const exportHint = selected?.provider === 'google' ? '只能開啟草稿或下載 ICS，尚未連線或指定寫入 Google。'
+    : selected?.provider === 'apple' ? '下載後自行選行事曆匯入。' : '不匯出到外部行事曆。';
+  const memoHint = selected && selected.provider !== 'local' ? '未定時間可先存備忘，設定時間後才能匯出。' : '';
+  $('#destination-hint').textContent = `${destinationNotice ? `${destinationNotice} ` : ''}這次新增：${destinationLabel(selected)}。${exportHint}${memoHint}`;
 }
 
 function renderDestinations() {
-  const current = recordingDestination || resolveDestination(taskDestination.value, settings);
+  const previousId = taskDestination.value;
+  const current = recordingDestination || resolveDestination(previousId, settings)
+    || resolveDestination(previousId ? 'local' : settings.preferredDestinationId, settings) || resolveDestination('local', settings);
+  if (previousId && !recordingDestination && !resolveDestination(previousId, settings)) {
+    destinationNotice = '原目的地已不存在，已改用本機任務，請重新選擇。';
+  }
   renderDestinationSelector(taskDestination, current);
-  taskDestination.disabled = listening;
+  taskDestination.disabled = listening || submitting;
   updateDestinationHint();
   destinationList.replaceChildren(...settings.googleDestinationLabels.map(destination => {
     const item = document.createElement('li');
@@ -251,7 +262,21 @@ function renderDestinations() {
   }));
 }
 
-taskDestination.addEventListener('change', () => { recordingDestination = null; updateDestinationHint(); });
+taskDestination.addEventListener('change', () => {
+  if (listening || submitting) {
+    if (recordingDestination) taskDestination.value = recordingDestination.id;
+    return;
+  }
+  recordingDestination = null;
+  const selected = resolveDestination(taskDestination.value, settings);
+  const destination = selected || resolveDestination('local', settings);
+  taskDestination.value = destination.id;
+  destinationNotice = selected ? '' : '原目的地已不存在，已改用本機任務，請重新選擇。';
+  if (!persistSettings({ ...settings, preferredDestinationId: destination.id })) {
+    destinationNotice = '本頁仍使用此目的地；偏好未儲存，重新整理後可能恢復上次選擇。';
+  }
+  updateDestinationHint();
+});
 $('#save-destination').addEventListener('click', () => {
   const name = destinationName.value.trim();
   if (!name) { showNotification('請輸入本機 Google 行事曆名稱。'); destinationName.focus(); return; }
@@ -264,7 +289,14 @@ $('#save-destination').addEventListener('click', () => {
 destinationList.addEventListener('click', event => {
   const button = event.target.closest('[data-destination-id]');
   if (!button) return;
-  if (persistSettings({ ...settings, googleDestinationLabels: settings.googleDestinationLabels.filter(item => item.id !== button.dataset.destinationId) })) {
+  const removingCurrent = taskDestination.value === button.dataset.destinationId;
+  if (persistSettings({ ...settings,
+    preferredDestinationId: removingCurrent ? 'local' : settings.preferredDestinationId,
+    googleDestinationLabels: settings.googleDestinationLabels.filter(item => item.id !== button.dataset.destinationId) })) {
+    if (taskDestination.value === button.dataset.destinationId) {
+      destinationNotice = recordingDestination ? '這個名稱已移除；本輪錄音保留原選擇，下一輪改用本機任務。'
+        : '原目的地已不存在，已改用本機任務，請重新選擇。';
+    }
     renderDestinations(); showNotification('已移除本機名稱；既有任務的目的地仍保留。');
   }
 });
@@ -276,7 +308,7 @@ function persistSettings(nextSettings) {
     updateStorageWarning();
     return false;
   }
-  settings = nextSettings;
+  settings = normalizeSettings(nextSettings);
   settingsError = null;
   updateStorageWarning();
   renderReminderControls();
@@ -307,13 +339,14 @@ function commit(nextTasks) {
   if (readOnly) { showNotification('目前儲存資料無法安全修改。'); return false; }
   const result = saveTasks(nextTasks);
   if (!result.ok) {
-    updateStorageWarning(result.error || '儲存失敗，請確認瀏覽器允許本機儲存。');
+    loadError = result.error || '儲存失敗，請確認瀏覽器允許本機儲存。';
+    updateStorageWarning();
     showNotification('儲存失敗，這次變更尚未套用。');
     return false;
   }
   tasks = nextTasks;
   loadError = null;
-  updateStorageWarning(null);
+  updateStorageWarning();
   renderTasks();
   checkReminders();
   return true;
@@ -354,6 +387,11 @@ function createTaskElement(task) {
   const destinationNote = document.createElement('p'); destinationNote.className = 'task-destination';
   destinationNote.textContent = `目的地：${destinationLabel(destination)}`;
   row.querySelector('.task-original').after(destinationNote);
+  if (!task.reminderAt && destination && destination.provider !== 'local') {
+    const pending = document.createElement('p'); pending.className = 'field-hint calendar-pending-note';
+    pending.textContent = '已保留目的地；請編輯並設定提醒時間後，再開啟草稿或匯出行事曆。';
+    destinationNote.after(pending);
+  }
   if (normalizeRepeat(task.repeat) !== 'none') {
     const repeat = document.createElement('span');
     repeat.className = 'repeat-label';
@@ -745,7 +783,7 @@ function getLocationData() {
 
 async function persistTaskAttachments(task) {
   try {
-    return await saveAttachmentBatch(task.id, attachmentDrafts);
+    return await saveAttachmentBatch(task.id, [...attachmentDrafts]);
   } catch (error) {
     showNotification(error?.message || '附件只可儲存在此裝置，這次任務尚未新增。');
     return null;
@@ -826,6 +864,7 @@ async function openAttachment(task, attachmentId) {
 }
 
 attachmentInput.addEventListener('change', () => {
+  if (submitting) return;
   const selected = Array.from(attachmentInput.files ?? []);
   if (attachmentDrafts.length + selected.length > MAX_ATTACHMENTS_PER_TASK) {
     showNotification(`每個任務最多 ${MAX_ATTACHMENTS_PER_TASK} 個附件。`);
@@ -844,6 +883,7 @@ attachmentInput.addEventListener('change', () => {
 });
 
 attachmentDraftList.addEventListener('click', event => {
+  if (submitting) return;
   const button = event.target.closest('.remove-attachment');
   if (!button) return;
   attachmentDrafts.splice(Number(button.dataset.attachmentIndex), 1);
@@ -851,13 +891,16 @@ attachmentDraftList.addEventListener('click', event => {
 });
 
 locationButton.addEventListener('click', () => {
+  if (submitting) return;
   if (!navigator.geolocation) {
     showNotification('此瀏覽器不支援定位；請直接輸入地址。');
     return;
   }
+  const requestVersion = ++locationRequestVersion;
   locationButton.disabled = true;
   navigator.geolocation.getCurrentPosition(
     position => {
+      if (requestVersion !== locationRequestVersion) return;
       const { latitude, longitude } = position.coords;
       locationInput.value = `目前位置（${latitude.toFixed(5)}, ${longitude.toFixed(5)}）`;
       locationInput.dataset.latitude = String(latitude);
@@ -866,6 +909,7 @@ locationButton.addEventListener('click', () => {
       showNotification('已取得目前位置；新增任務前仍可手動修改。');
     },
     () => {
+      if (requestVersion !== locationRequestVersion) return;
       locationButton.disabled = false;
       showNotification('定位未完成；請確認權限或直接輸入地址。');
     },
@@ -920,7 +964,7 @@ input.addEventListener('input', updatePreview);
 input.addEventListener('change', updatePreview);
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (listening || readOnly || composing) return;
+  if (listening || readOnly || composing || submitting) return;
   const originalInput = input.value.trim();
   const parsed = parseTaskInput(originalInput);
   if (!parsed.title) {
@@ -950,36 +994,57 @@ form.addEventListener('submit', async event => {
   if (repeat !== 'none') task.seriesId = task.id;
   if (repeat === 'monthly' || repeat === 'yearly') task.repeatDay = new Date(reminderAt).getDate();
   if (repeat === 'yearly') task.repeatMonth = new Date(reminderAt).getMonth() + 1;
-  const storedAttachmentIds = await persistTaskAttachments(task);
-  if (storedAttachmentIds === null) return;
-  // Attachment storage yields; use the latest task list before appending.
-  const latest = loadTasks();
-  if (latest.readOnly) {
-    tasks = latest.tasks; readOnly = true; loadError = latest.error;
-    updateStorageWarning(); renderTasks();
-    await deleteAttachments(storedAttachmentIds).catch(() => {});
-    showNotification('目前資料無法安全修改，這筆任務尚未新增。'); return;
-  }
-  if (commit([...latest.tasks, task])) {
-    input.value = '';
-    locationInput.value = '';
-    delete locationInput.dataset.latitude;
-    delete locationInput.dataset.longitude;
-    clearAttachmentDrafts();
-    taskTime.value = ''; taskNoTime.checked = false; taskTime.disabled = false;
-    taskCategory.value = 'other'; taskNotes.value = ''; taskRepeat.value = 'none';
-    recordingDestination = null; taskDestination.value = 'local'; updateDestinationHint();
-    updatePreview();
-    revealTask(task);
+  // Keep this draft stable while attachment storage yields, and reject double submits.
+  // A late geolocation result must not refill the next draft after this one is saved.
+  locationRequestVersion += 1;
+  locationButton.disabled = false;
+  const controls = [input, voiceButton, taskDestination, addButton, locationInput, locationButton,
+    attachmentInput, taskCategory, taskNotes, taskTime, taskNoTime, taskRepeat,
+    ...attachmentDraftList.querySelectorAll('.remove-attachment'),
+    ...document.querySelectorAll('[data-example]')];
+  const disabledBeforeSubmit = controls.map(control => control.disabled);
+  submitting = true;
+  controls.forEach(control => { control.disabled = true; });
+  try {
+    const storedAttachmentIds = await persistTaskAttachments(task);
+    if (storedAttachmentIds === null) return;
+    // Attachment storage yields; use the latest task list before appending.
+    const latest = loadTasks();
+    if (latest.readOnly) {
+      tasks = latest.tasks; readOnly = true; loadError = latest.error;
+      updateStorageWarning(); renderTasks();
+      await deleteAttachments(storedAttachmentIds).catch(() => {});
+      showNotification('目前資料無法安全修改，這筆任務尚未新增。'); return;
+    }
+    if (commit([...latest.tasks, task])) {
+      input.value = '';
+      locationInput.value = '';
+      delete locationInput.dataset.latitude;
+      delete locationInput.dataset.longitude;
+      clearAttachmentDrafts();
+      taskTime.value = ''; taskNoTime.checked = false; taskTime.disabled = false;
+      taskCategory.value = 'other'; taskNotes.value = ''; taskRepeat.value = 'none';
+      recordingDestination = null; renderDestinations();
+      updatePreview();
+      revealTask(task);
+      input.focus();
+      showNotification(`已新增「${task.title}」`);
+    } else {
+      await deleteAttachments(storedAttachmentIds).catch(() => {});
+    }
+  } finally {
+    submitting = false;
+    controls.forEach((control, index) => { control.disabled = disabledBeforeSubmit[index]; });
+    taskTime.disabled = taskNoTime.checked;
+    taskDestination.disabled = listening;
+    updateStorageWarning();
     input.focus();
-    showNotification(`已新增「${task.title}」`);
-  } else {
-    await deleteAttachments(storedAttachmentIds).catch(() => {});
   }
 });
 
 document.querySelectorAll('[data-example]').forEach(button => {
   button.addEventListener('click', () => {
+    if (submitting) return;
     input.value = button.dataset.example;
     updatePreview();
     input.focus();
@@ -1057,16 +1122,26 @@ undoButton.addEventListener('click', () => {
 });
 
 setupSpeechInput({
-  input, voiceButton, voiceLabel, speechStatus, isReadOnly: () => readOnly,
+  input, voiceButton, voiceLabel, speechStatus, isReadOnly: () => readOnly || submitting,
   onListening: active => {
+    if (active && !listening) {
+      recordingDestination = resolveDestination(taskDestination.value, settings)
+        || resolveDestination(settings.preferredDestinationId, settings) || resolveDestination('local', settings);
+      renderDestinationSelector(taskDestination, recordingDestination);
+    }
     listening = active;
-    addButton.disabled = readOnly || active;
-    taskDestination.disabled = active;
-    if (active && !recordingDestination) recordingDestination = resolveDestination(taskDestination.value, settings);
+    addButton.disabled = readOnly || active || submitting;
+    taskDestination.disabled = active || submitting;
     updateDestinationHint();
   },
 });
 window.addEventListener('storage', event => {
+  if (event.key === SETTINGS_KEY || event.key === null) {
+    const loadedSettings = loadSettings();
+    settings = loadedSettings.settings; settingsError = loadedSettings.error;
+    destinationNotice = loadedSettings.destinationWarning || '';
+    renderDestinations(); renderPlaces(); renderReminderControls(); updateStorageWarning();
+  }
   if (event.key !== STORAGE_KEY && event.key !== null) return;
   const loaded = loadTasks();
   tasks = loaded.tasks;
