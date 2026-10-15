@@ -18,6 +18,7 @@ const voiceButton = $('#voice-button');
 const voiceLabel = $('#voice-label');
 const speechStatus = $('#speech-status');
 const addButton = $('#add-button');
+const addLabel = $('#add-label');
 const warning = $('#storage-warning');
 const notification = $('#notification');
 const undoButton = $('#undo-button');
@@ -77,6 +78,7 @@ let listening = false;
 let submitting = false;
 let locationRequestVersion = 0;
 let composing = false;
+let draftReminderAt = null;
 let deletedTask = null;
 let notificationTimer;
 const deletedAttachmentCleanupTimers = new Map();
@@ -231,17 +233,53 @@ function renderDestinationSelector(select, current = null, allowBlank = false) {
     const empty = document.createElement('option'); empty.value = ''; empty.textContent = '未指定（保留舊任務）'; select.append(empty);
   }
   for (const destination of options) {
-    const option = document.createElement('option'); option.value = destination.id; option.textContent = destinationLabel(destination); select.append(option);
+    const option = document.createElement('option'); option.value = destination.id;
+    option.textContent = destination.provider === 'google'
+      ? `Google Calendar${destination.source === 'local-label' ? `｜${destination.name}（本機名稱）` : ''}`
+      : destination.provider === 'apple' ? 'Apple 行事曆' : destinationLabel(destination);
+    select.append(option);
   }
   select.value = current?.id || (allowBlank ? '' : 'local');
 }
 
 function updateDestinationHint() {
   const selected = recordingDestination?.id === taskDestination.value ? recordingDestination : resolveDestination(taskDestination.value, settings);
-  const exportHint = selected?.provider === 'google' ? '只能開啟草稿或下載 ICS，尚未連線或指定寫入 Google。'
-    : selected?.provider === 'apple' ? '下載後自行選行事曆匯入。' : '不匯出到外部行事曆。';
-  const memoHint = selected && selected.provider !== 'local' ? '未定時間可先存備忘，設定時間後才能匯出。' : '';
+  const exportHint = selected?.provider === 'google' ? '確認新增後會前往 Google Calendar，仍需選對行事曆並儲存。'
+    : selected?.provider === 'apple' ? '確認新增後產生 ICS 檔案，尚待匯入 Apple 行事曆；不會直接加入。' : '只儲存在目前瀏覽器。';
+  const memoHint = selected && selected.provider !== 'local' ? '沒有時間時只存備忘，之後可編輯安排。' : '';
   $('#destination-hint').textContent = `${destinationNotice ? `${destinationNotice} ` : ''}這次新增：${destinationLabel(selected)}。${exportHint}${memoHint}`;
+  renderSubmitLabel();
+}
+
+function renderSubmitLabel() {
+  const destination = recordingDestination?.id === taskDestination.value ? recordingDestination : resolveDestination(taskDestination.value, settings);
+  addLabel.textContent = input.value.trim() && !draftReminderAt ? '儲存備忘'
+    : destination?.provider === 'google' ? '確認並前往 Google Calendar'
+    : destination?.provider === 'apple' ? '確認並下載 Apple ICS' : '新增任務';
+}
+
+function handOffToCalendar(task, { alarmMinutes = settings.calendarAlarmMinutes } = {}) {
+  const destination = normalizeDestination(task.destination);
+  if (!task.reminderAt || !destination || destination.provider === 'local') return;
+  if (destination.provider === 'google') {
+    try {
+      const url = createGoogleCalendarUrl(task);
+      showNotification('本機任務已儲存；請在 Google Calendar 確認行事曆與重複設定後，按下儲存。');
+      // Same-tab navigation does not depend on popup activation surviving the attachment await.
+      window.location.assign(url);
+    } catch {
+      showNotification('本機任務已保留，無法前往 Google Calendar。請點這筆任務的「開啟 Google Calendar」重試，仍需在 Google 儲存。');
+    }
+    return;
+  }
+  if (destination.provider === 'apple') {
+    try {
+      downloadICS(task, { alarmMinutes });
+      showNotification('ICS 檔案已產生，尚待匯入 Apple 行事曆。若未出現下載，請點這筆任務的下載按鈕再試。');
+    } catch {
+      showNotification('本機任務已保留；ICS 檔案產生失敗，請點這筆任務的下載按鈕重試。尚未加入 Apple 行事曆。');
+    }
+  }
 }
 
 function renderDestinations() {
@@ -356,9 +394,12 @@ function updatePreview() {
   const raw = input.value.trim();
   $('#parse-preview').hidden = !raw;
   input.setCustomValidity('');
-  if (!raw || composing) return;
+  if (!raw) { draftReminderAt = null; renderSubmitLabel(); return; }
+  if (composing) return;
   const parsed = parseTaskInput(raw);
   const reminderAt = taskNoTime.checked ? null : (taskTime.value ? parseDateTimeLocal(taskTime.value) : parsed.reminderAt);
+  draftReminderAt = reminderAt;
+  renderSubmitLabel();
   $('#preview-title').textContent = parsed.title || '請補上待辦事項';
   $('#preview-time').textContent = formatTime(reminderAt);
   $('#preview-note').textContent = taskNoTime.checked ? '先保存在備忘；時間確定後可編輯安排。'
@@ -451,11 +492,15 @@ function createTaskElement(task) {
     const googleButton = row.querySelector('.google-button');
     const appleButton = row.querySelector('.apple-button');
     googleButton.href = createGoogleCalendarUrl(task);
-    row.querySelector('.google-button').setAttribute('aria-label', `開啟 Google Calendar 草稿：${task.title}`);
-    row.querySelector('.apple-button').setAttribute('aria-label', `加入 Apple 行事曆：${task.title}`);
+    googleButton.target = '_self';
+    googleButton.setAttribute('aria-label', `開啟 Google Calendar 草稿：${task.title}`);
+    appleButton.setAttribute('aria-label', `下載 Apple 行事曆檔案（ICS，尚待匯入）：${task.title}`);
     googleButton.hidden = destination?.provider !== 'google';
-    appleButton.hidden = !destination || destination.provider === 'local';
-    if (destination?.provider === 'google') appleButton.textContent = '下載 ICS（可匯入行事曆）';
+    appleButton.hidden = destination?.provider !== 'apple';
+    appleButton.textContent = '下載 Apple 行事曆檔案（ICS）';
+    row.querySelector('.calendar-export-note').textContent = destination?.provider === 'google'
+      ? '尚待 Google 儲存：請在事件頁選對行事曆，確認時間與重複設定後儲存。'
+      : '尚待匯入 Apple 行事曆：ICS 可能先下載為檔案，是否顯示匯入畫面依裝置而異。';
     row.querySelector('.calendar-actions').hidden = !destination || destination.provider === 'local';
   } else row.querySelector('.calendar-actions').hidden = true;
   const editButton = document.createElement('button');
@@ -1003,6 +1048,8 @@ form.addEventListener('submit', async event => {
     ...attachmentDraftList.querySelectorAll('.remove-attachment'),
     ...document.querySelectorAll('[data-example]')];
   const disabledBeforeSubmit = controls.map(control => control.disabled);
+  const alarmMinutes = settings.calendarAlarmMinutes;
+  let savedTask = null;
   submitting = true;
   controls.forEach(control => { control.disabled = true; });
   try {
@@ -1017,6 +1064,7 @@ form.addEventListener('submit', async event => {
       showNotification('目前資料無法安全修改，這筆任務尚未新增。'); return;
     }
     if (commit([...latest.tasks, task])) {
+      savedTask = task;
       input.value = '';
       locationInput.value = '';
       delete locationInput.dataset.latitude;
@@ -1040,6 +1088,7 @@ form.addEventListener('submit', async event => {
     updateStorageWarning();
     input.focus();
   }
+  if (savedTask) handOffToCalendar(savedTask, { alarmMinutes });
 });
 
 document.querySelectorAll('[data-example]').forEach(button => {
@@ -1071,15 +1120,7 @@ $('#task-sections').addEventListener('change', event => {
 });
 
 $('#task-sections').addEventListener('click', event => {
-  const google = event.target.closest('.google-button');
-  if (google) {
-    event.preventDefault();
-    const task = tasks.find(item => item.id === google.closest('.task-row')?.dataset.id);
-    if (!task || normalizeDestination(task.destination)?.provider !== 'google') return;
-    $('#calendar-confirm-destination').textContent = `任務「${task.title}」的目的地：${destinationLabel(task.destination)}`;
-    $('#calendar-confirm-link').href = createGoogleCalendarUrl(task);
-    $('#calendar-confirmation').showModal(); return;
-  }
+  // Google is a native same-tab link: no second dialog or scripted popup.
   const button = event.target.closest('button');
   if (!button) return;
   const id = button.closest('.task-row')?.dataset.id;
@@ -1100,13 +1141,10 @@ $('#task-sections').addEventListener('click', event => {
   } else if (button.classList.contains('attachment-button')) {
     openAttachment(task, button.dataset.attachmentId);
   } else if (button.classList.contains('apple-button')) {
-    if (!task.destination || task.destination.provider === 'local') { showNotification('請先編輯這筆任務，選擇行事曆目的地。'); return; }
-    try { downloadICS(task, { alarmMinutes: settings.calendarAlarmMinutes }); showNotification('已產生行事曆檔案，請確認目的地、重複規則與提醒設定後匯入。'); }
-    catch { showNotification('行事曆檔案產生失敗，請確認提醒時間。'); }
+    if (normalizeDestination(task.destination)?.provider !== 'apple' || !task.reminderAt) return;
+    handOffToCalendar(task);
   }
 });
-$('#calendar-confirm-cancel').addEventListener('click', () => $('#calendar-confirmation').close());
-$('#calendar-confirm-link').addEventListener('click', () => $('#calendar-confirmation').close());
 
 undoButton.addEventListener('click', () => {
   if (!deletedTask) return;

@@ -70,7 +70,7 @@ function getDescription(task, { google = false, weekendException = false, anchor
     ...(task.destination ? [`目的地：${destinationLabel(task.destination)}`] : []),
     ...(task.destination?.provider === 'google' ? ['Google 目的地是本機名稱，未連線；請自行在草稿選擇實際行事曆。'] : []),
     ...(recurring ? [`重複任務：${repeatLabel(task.repeat)}`] : []),
-    ...(recurring && google ? ['Google 草稿未自動設定重複，請在 Google 行事曆確認設定；完整系列可使用 .ics。'] : []),
+    ...(recurring && google ? ['Google 草稿未自動設定重複，請在 Google 行事曆確認重複規則後儲存。'] : []),
     ...(recurring && !google ? ['重複系列依匯入裝置當地時間，跨時區保持鐘點而非同一瞬間。'] : []),
     ...(weekendException ? ['首次週末行程作為例外保留，後續系列從下一個平日開始。'] : []),
     ...(anchorException ? ['目前提醒日與系列錨點不同，首次行程作為例外保留，後續依重複規則。'] : []),

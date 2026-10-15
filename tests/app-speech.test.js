@@ -23,13 +23,15 @@ const source = fs.readFileSync(new URL('../js/app.js', import.meta.url), 'utf8')
 function createHarness({
   supported = true, initialTasks = [], initialSettings = {}, storedTaskJSON, storedSettingsJSON, attachmentRecords = [],
   now = Date.now(), audio = false, notifications = false, settingsSaveFailure = false, taskSaveFailure = false,
-  attachmentSave = async () => [], geolocation = false,
+  attachmentSave = async () => [], geolocation = false, navigationFailure = false, downloadFailure = false,
 } = {}) {
   const nodes = new Map();
   const parsedInputs = [];
   const storageValues = new Map();
   const storageWrites = [];
   const calendarDownloads = [];
+  const navigationCalls = [];
+  const popupCalls = [];
   const locationRequests = [];
   const channelCalls = { audioContexts: 0, resumes: 0, tones: 0, notificationRequests: 0, notifications: [] };
   let clockTime = now;
@@ -236,7 +238,8 @@ function createHarness({
     const original = element('original', 'p', 'task-original');
     original.append(element('original-text', 'span', 'original-text'));
     const calendar = element('calendar', 'div', 'calendar-actions');
-    calendar.append(element('google', 'a', 'google-button'), element('apple', 'button', 'apple-button'));
+    calendar.append(element('google', 'a', 'google-button'), element('apple', 'button', 'apple-button'),
+      element('calendar-note', 'p', 'field-hint calendar-export-note'));
     content.append(element('title', 'h3', 'task-title'), taskTime, original, calendar);
     const checkbox = element('checkbox', 'input');
     checkbox.type = 'checkbox';
@@ -304,6 +307,11 @@ function createHarness({
         windowListeners.set(name, listeners);
       },
       isSecureContext: true,
+      location: { assign(url) {
+        navigationCalls.push({ url, savedTasks: JSON.parse(memoryStorage.getItem(STORAGE_KEY)) });
+        if (navigationFailure) throw new Error('Synthetic navigation failure');
+      } },
+      open(...args) { popupCalls.push(args); throw new Error('Unexpected popup'); },
       matchMedia: () => media,
       ...(audio ? { AudioContext: HarnessAudioContext } : {}),
       ...(notifications ? { Notification: HarnessNotification } : {}),
@@ -337,7 +345,10 @@ function createHarness({
     clearTimeout: id => timers.delete(id),
     parseTaskInput(input) { parsedInputs.push(input); return parseTaskInput(input); },
     createGoogleCalendarUrl, createMapUrl,
-    downloadICS(task, options) { calendarDownloads.push(JSON.parse(JSON.stringify({ task, options }))); },
+    downloadICS(task, options) {
+      calendarDownloads.push(JSON.parse(JSON.stringify({ task, options, savedTasks: JSON.parse(memoryStorage.getItem(STORAGE_KEY)) })));
+      if (downloadFailure) throw new Error('Synthetic download failure');
+    },
     STORAGE_KEY, SETTINGS_KEY, normalizeSettings,
     loadTasks: () => loadTasks(memoryStorage),
     saveTasks: tasks => saveTasks(tasks, memoryStorage),
@@ -366,7 +377,7 @@ function createHarness({
     return null;
   }
   return {
-    getNode, getTaskRow, get recognition() { return recognition; }, recognitions, parsedInputs, attachmentCalls, channelCalls, calendarDownloads, locationRequests,
+    getNode, getTaskRow, get recognition() { return recognition; }, recognitions, parsedInputs, attachmentCalls, channelCalls, calendarDownloads, navigationCalls, popupCalls, locationRequests,
     getSavedTasks: () => JSON.parse(memoryStorage.getItem(STORAGE_KEY)),
     getSavedSettings: () => JSON.parse(memoryStorage.getItem(SETTINGS_KEY)),
     getTaskWriteCount: () => storageWrites.filter(write => write.key === STORAGE_KEY).length,
@@ -374,6 +385,7 @@ function createHarness({
     getStoredJSON: () => memoryStorage.getItem(STORAGE_KEY),
     getStoredSettingsJSON: () => memoryStorage.getItem(SETTINGS_KEY),
     rejectTaskWrites(value) { rejectTaskWrites = value; },
+    rejectDownloads(value) { downloadFailure = value; },
     updateTasksFromOtherTab(nextTasks, { notify = true } = {}) {
       assert.equal(saveTasks(nextTasks, memoryStorage).ok, true);
       if (notify) for (const listener of windowListeners.get('storage') ?? []) listener({ key: STORAGE_KEY });
@@ -1026,7 +1038,7 @@ test('Removing a label during recording preserves the destination captured befor
   assert.deepEqual(app.getSavedTasks()[0].destination, work);
 });
 
-test('Google draft clicks require local-label confirmation and never invent a Google calendar ID', () => {
+test('Google uses one native same-tab link without a second dialog or invented calendar ID', () => {
   const work = googleDestination();
   const task = syntheticTask({ destination: work });
   const app = createHarness({ initialTasks: [task], initialSettings: { googleDestinationLabels: [work] } });
@@ -1036,17 +1048,21 @@ test('Google draft clicks require local-label confirmation and never invent a Go
   app.getNode('#task-sections').dispatchEvent({
     type: 'click', target: link, preventDefault() { prevented = true; },
   });
-  assert.equal(prevented, true);
-  assert.equal(app.getNode('#calendar-confirmation').open, true);
-  assert.match(app.getNode('#calendar-confirm-destination').textContent, /工作.*本機名稱，未連線/);
-  const url = new URL(app.getNode('#calendar-confirm-link').href);
+  assert.equal(prevented, false);
+  assert.equal(link.target, '_self');
+  assert.equal(app.getTaskRow(task.id).querySelector('.apple-button').hidden, true);
+  assert.match(app.getTaskRow(task.id).querySelector('.calendar-export-note').textContent, /儲存/);
+  const url = new URL(link.href);
   assert.equal(url.origin, 'https://calendar.google.com');
   assert.equal(url.searchParams.get('action'), 'TEMPLATE');
   assert.equal(url.searchParams.get('text'), task.title);
   for (const key of ['calendarId', 'calendarid', 'src', 'cid']) assert.equal(url.searchParams.has(key), false);
   assert.equal([...url.searchParams.values()].includes(work.id), false);
-  app.getNode('#calendar-confirm-cancel').dispatchEvent({ type: 'click' });
-  assert.equal(app.getNode('#calendar-confirmation').open, false);
+  assert.deepEqual(app.navigationCalls, []);
+  assert.deepEqual(app.popupCalls, []);
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /id="calendar-confirm(?:ation|-)/);
+  assert.doesNotMatch(source, /\$\('#calendar-confirm/);
 });
 
 test('Editing preserves unspecified legacy destinations until an explicit per-task choice is saved', () => {
@@ -1065,6 +1081,167 @@ function chooseDestination(app, id) {
   app.getNode('#task-destination').value = id;
   app.getNode('#task-destination').dispatchEvent({ type: 'change' });
 }
+
+function enterDraft(app, text = '十分鐘後提醒我喝水') {
+  app.getNode('#task-input').value = text;
+  app.getNode('#task-input').dispatchEvent({ type: 'input' });
+}
+
+test('Selecting a provider and recognizing speech only previews; confirmation saves before Google navigation', async () => {
+  const app = createHarness();
+  chooseDestination(app, 'google-draft');
+  assert.equal(app.navigationCalls.length, 0);
+  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
+  app.recognition.onstart();
+  app.recognition.onresult(finalResult('十分鐘後提醒我喝水'));
+  app.recognition.onend();
+  assert.equal(app.navigationCalls.length, 0);
+  assert.equal(app.getSavedTasks().length, 0);
+  assert.equal(app.getNode('#add-label').textContent, '確認並前往 Google Calendar');
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  assert.equal(app.navigationCalls.length, 1);
+  assert.deepEqual(app.navigationCalls[0].savedTasks, app.getSavedTasks());
+  const saved = app.getSavedTasks()[0];
+  assert.equal(saved.title, '喝水');
+  assert.equal(app.navigationCalls[0].url, createGoogleCalendarUrl(saved));
+  assert.equal(app.getTaskRow(saved.id).querySelector('.apple-button').hidden, true);
+  assert.deepEqual(app.calendarDownloads, []);
+  assert.deepEqual(app.popupCalls, []);
+});
+
+test('Deferred attachment storage prevents early handoff and duplicate submits for either provider', async () => {
+  for (const destination of ['google-draft', 'apple']) {
+    let finish;
+    let attachmentCalls = 0;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const app = createHarness({ initialSettings: { preferredDestinationId: destination, calendarAlarmMinutes: 30 },
+      attachmentSave: () => { attachmentCalls += 1; return pending; } });
+    enterDraft(app);
+    const submitting = app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    assert.equal(app.getNode('#add-button').disabled, true);
+    assert.equal(app.getSavedTasks().length, 0);
+    assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 0);
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    assert.equal(attachmentCalls, 1);
+    app.getNode('#calendar-alarm').value = '0';
+    app.getNode('#calendar-alarm').dispatchEvent({ type: 'change' });
+    finish([]);
+    await submitting;
+    assert.equal(app.getSavedTasks().length, 1);
+    assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 1);
+    assert.equal(app.getNode('#add-button').disabled, false);
+    if (destination === 'apple') {
+      assert.equal(app.calendarDownloads[0].options.alarmMinutes, 30, 'Use the confirmed draft alarm snapshot');
+      assert.deepEqual(app.calendarDownloads[0].savedTasks, app.getSavedTasks());
+    }
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    assert.equal(app.getSavedTasks().length, 1);
+    assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 1);
+    assert.deepEqual(app.popupCalls, []);
+  }
+});
+
+test('Attachment and task-storage failures keep the draft and never hand off', async () => {
+  for (const destination of ['google-draft', 'apple']) {
+    for (const failure of ['attachment', 'task']) {
+      const app = createHarness({ initialSettings: { preferredDestinationId: destination },
+        taskSaveFailure: failure === 'task',
+        attachmentSave: async () => {
+          if (failure === 'attachment') throw new Error('Synthetic attachment failure');
+          return ['stored-attachment'];
+        } });
+      enterDraft(app);
+      app.getNode('#task-notes').value = '保留草稿備註';
+      await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+      assert.equal(app.getSavedTasks().length, 0);
+      assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 0);
+      assert.equal(app.getNode('#task-input').value, '十分鐘後提醒我喝水');
+      assert.equal(app.getNode('#task-notes').value, '保留草稿備註');
+      assert.equal(app.getNode('#task-destination').value, destination);
+      if (failure === 'task') assert.deepEqual(app.attachmentCalls.delete, [['stored-attachment']]);
+    }
+  }
+});
+
+test('A read-only record arriving during attachment await prevents both handoffs and rolls back attachment IDs', async () => {
+  let finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  const app = createHarness({ initialSettings: { preferredDestinationId: 'google-draft' }, attachmentSave: () => pending });
+  enterDraft(app);
+  const submitting = app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  const unsafeJSON = '{"unexpected":"newer format"}';
+  app.updateTaskJSONFromOtherTab(unsafeJSON);
+  finish(['stored-attachment']);
+  await submitting;
+  assert.equal(app.getStoredJSON(), unsafeJSON);
+  assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 0);
+  assert.deepEqual(app.attachmentCalls.delete, [['stored-attachment']]);
+  assert.equal(app.getNode('#task-input').value, '十分鐘後提醒我喝水');
+});
+
+test('Failed Google navigation retains one saved task and its native same-tab retry link', async () => {
+  const app = createHarness({ initialSettings: { preferredDestinationId: 'google-draft' }, navigationFailure: true });
+  enterDraft(app);
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  const saved = app.getSavedTasks()[0];
+  assert.equal(app.getSavedTasks().length, 1);
+  assert.match(app.getNode('#notification-text').textContent, /任務已保留.*重試/);
+  const link = app.getTaskRow(saved.id).querySelector('.google-button');
+  assert.equal(link.href, createGoogleCalendarUrl(saved));
+  assert.equal(link.target, '_self');
+  let prevented = false;
+  app.getNode('#task-sections').dispatchEvent({ type: 'click', target: link, preventDefault() { prevented = true; } });
+  assert.equal(prevented, false, 'The native link is usable with a new user gesture');
+  assert.equal(app.getSavedTasks().length, 1);
+  assert.deepEqual(app.popupCalls, []);
+});
+
+test('Apple download failures keep the task and a fresh click retries the same ICS without adding another task', async () => {
+  const app = createHarness({ initialSettings: { preferredDestinationId: 'apple' }, downloadFailure: true });
+  enterDraft(app, '明天早上八點提醒我買早餐');
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  const saved = app.getSavedTasks()[0];
+  assert.equal(app.getSavedTasks().length, 1);
+  assert.match(app.getNode('#notification-text').textContent, /任務已保留.*尚未加入/);
+  assert.equal(app.getTaskRow(saved.id).querySelector('.google-button').hidden, true);
+  app.rejectDownloads(false);
+  app.getNode('#task-sections').dispatchEvent({ type: 'click', target: app.getTaskRow(saved.id).querySelector('.apple-button') });
+  assert.equal(app.calendarDownloads.length, 2);
+  assert.equal(app.calendarDownloads[1].task.id, saved.id);
+  assert.equal(app.getSavedTasks().length, 1);
+  assert.match(app.getNode('#notification-text').textContent, /尚待匯入/);
+  assert.deepEqual(app.navigationCalls, []);
+});
+
+test('Memos and later edits, completion, recurring next tasks, and reload never auto-export', async () => {
+  for (const destination of ['google-draft', 'apple']) {
+    const app = createHarness({ initialSettings: { preferredDestinationId: destination } });
+    enterDraft(app, '睡前提醒我吃藥');
+    assert.equal(app.getNode('#add-label').textContent, '儲存備忘');
+    await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+    const memo = app.getSavedTasks()[0];
+    assert.equal(memo.reminderAt, null);
+    assert.equal(app.getTaskRow(memo.id).querySelector('.calendar-actions').hidden, true);
+    editThroughRegisteredCallbacks(app, memo.id, { time: '2030-01-05T08:00', repeat: 'daily' });
+    setCompletionThroughCallback(app, memo.id, true);
+    assert.equal(app.getSavedTasks().length, 2);
+    assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 0);
+    const reloaded = createHarness({ initialTasks: app.getSavedTasks(), storedSettingsJSON: app.getStoredSettingsJSON() });
+    assert.equal(reloaded.navigationCalls.length + reloaded.calendarDownloads.length, 0);
+  }
+});
+
+test('Local tasks and a hidden Apple action on a Google task cannot download ICS', async () => {
+  const app = createHarness();
+  enterDraft(app);
+  await app.getNode('#task-form').dispatchAsync({ type: 'submit' });
+  const local = app.getSavedTasks()[0];
+  assert.equal(app.getTaskRow(local.id).querySelector('.calendar-actions').hidden, true);
+  const googleTask = syntheticTask({ destination: destinations.resolveDestination('google-draft', {}) });
+  app.updateTasksFromOtherTab([local, googleTask]);
+  app.getNode('#task-sections').dispatchEvent({ type: 'click', target: app.getTaskRow(googleTask.id).querySelector('.apple-button') });
+  assert.equal(app.navigationCalls.length + app.calendarDownloads.length, 0);
+});
 
 function visibleText(node) {
   if (!node || node.hidden) return '';

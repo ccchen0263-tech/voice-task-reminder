@@ -85,6 +85,7 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3
 .task-original { color: #888493; font-size: 12px; margin-top: 7px; line-height: 1.7; overflow-wrap: anywhere; }
 .task-original > span:first-child { color: #7b768a; margin-right: 8px; }
 .calendar-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.calendar-export-note { flex-basis: 100%; margin-top: 0; overflow-wrap: anywhere; }
 .calendar-button { font-size: 12px; font-weight: 500; padding: 9px 11px; min-height: 44px; border-color: #e8e5f1; background: white; color: #685c96; }
 .calendar-button:hover { background: #f5f2fc; }
 .calendar-button svg { width: 14px; height: 14px; }
@@ -223,7 +224,6 @@ textarea:focus, .field-group input:focus, .field-group select:focus { box-shadow
 .task-section { scroll-margin-top: 18px; }
 .destination-picker { min-width: 0; }
 .task-destination { margin-top: 7px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-#calendar-confirmation p { margin-top: 15px; line-height: 1.8; overflow-wrap: anywhere; }
 @media (min-width: 640px) { .planner-panel { padding: 20px; } .calendar-day { min-height: 78px; } .day-number { font-size: 17px; } .day-count { font-size: 11px; } .task-options .location-field { grid-column: 1 / -1; } }
 @media (max-width: 400px) { .list-heading { flex-direction: column; gap: 6px; } .month-toolbar { gap: 4px; } .month-toolbar h2 { font-size: 16px; } .edit-dialog { padding: 20px; } }
 
