@@ -139,7 +139,7 @@ export function setupSpeechInput({
   }
 
   function markManualCorrection() {
-    if (!applyingTranscript && session?.hasAppliedFinal) session.manualCorrection = true;
+    if (!applyingTranscript && session) session.manualCorrection = true;
   }
   input.addEventListener('input', markManualCorrection);
 
@@ -153,7 +153,7 @@ export function setupSpeechInput({
       recognition.interimResults = true;
       record = {
         recognition, ended: false, finalTranscript: '',
-        hasAppliedFinal: false, manualCorrection: false, lastAppliedValue: '',
+        manualCorrection: false, lastAppliedValue: input.value,
         timer: null, durationTimer: null, progressTimer: null,
         startedAt: null, elapsedSeconds: 0, clockStopped: false, limitReached: false,
       };
@@ -180,19 +180,20 @@ export function setupSpeechInput({
           else interim += text;
         }
         if (finalTranscript) record.finalTranscript = finalTranscript;
-        if (record.hasAppliedFinal && input.value !== record.lastAppliedValue) record.manualCorrection = true;
+        // Preserve edits made after recording started, even before the first
+        // final result (including autofill that did not dispatch an input event).
+        if (input.value !== record.lastAppliedValue) record.manualCorrection = true;
         if (finalTranscript && !record.manualCorrection) {
           input.value = finalTranscript;
-          record.hasAppliedFinal = true;
           record.lastAppliedValue = finalTranscript;
           const InputEvent = windowObject?.Event || globalThis.Event;
           applyingTranscript = true;
           try { input.dispatchEvent(new InputEvent('input', { bubbles: true })); }
           finally { applyingTranscript = false; }
-          // Single-utterance callers still recover from a missing end. Continuous
-          // recording must keep its independent duration limit across final results.
-          if (!continuous && state === 'listening') armRecovery(record, SETTLE_MS);
         }
+        // A preserved manual edit must not prevent single-utterance recovery.
+        // Continuous recording keeps its independent duration limit.
+        if (finalTranscript && !continuous && state === 'listening') armRecovery(record, SETTLE_MS);
         if (interim) speechStatus.textContent = `辨識中：${interim}`;
         else if (finalTranscript && state === 'listening') speechStatus.textContent = '已辨識文字；可以繼續說，或再點語音按鈕停止。';
       };

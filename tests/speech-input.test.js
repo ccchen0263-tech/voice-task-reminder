@@ -61,7 +61,7 @@ function harness({ supported = true, legacy = false, continuous = false, startFa
   const windowObject = {
     Event: InputEvent,
     performance: { now: () => elapsed },
-    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
+    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay, due: elapsed + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     addEventListener(name, callback) { const callbacks = windowListeners.get(name) || []; callbacks.push(callback); windowListeners.set(name, callbacks); },
     removeEventListener(name, callback) { windowListeners.set(name, (windowListeners.get(name) || []).filter(item => item !== callback)); },
@@ -76,6 +76,17 @@ function harness({ supported = true, legacy = false, continuous = false, startFa
   return {
     input, voiceButton, voiceLabel, speechStatus, addButton, instances, control, parsedInputs, progress,
     advance(seconds) { elapsed += seconds * 1000; },
+    advanceTo(milliseconds, { reverseAtSameTime = false } = {}) {
+      assert.ok(milliseconds >= elapsed, 'The clock must move forward');
+      while (true) {
+        const next = [...timers].filter(([, timer]) => timer.due <= milliseconds)
+          .sort((a, b) => a[1].due - b[1].due || (reverseAtSameTime ? b[0] - a[0] : a[0] - b[0]))[0];
+        if (!next) break;
+        const [id, timer] = next;
+        elapsed = timer.due; timers.delete(id); timer.callback();
+      }
+      elapsed = milliseconds;
+    },
     get parsed() { return parsed; },
     click() { voiceButton.dispatchEvent({ type: 'click' }); },
     type(value) { input.value = value; input.dispatchEvent(new InputEvent('input', { bubbles: true })); },
@@ -593,4 +604,92 @@ test('old duration and progress callbacks cannot affect the next recording', () 
   assert.equal(second.stops, 0);
   assert.equal(second.aborts, 0);
   assert.deepEqual(app.progress.at(-1), { seconds: 0, limit: 120 });
+});
+
+test('scheduled clock enforces the exact 120-second boundary and bounded settling in either timer order', () => {
+  for (const reverseAtSameTime of [false, true]) {
+    const app = harness({ continuous: true });
+    const first = beginListening(app);
+    first.onresult(result('十分鐘後提醒我喝水'));
+    app.advanceTo(119_999, { reverseAtSameTime });
+    assert.equal(app.control.state, 'listening');
+    assert.equal(first.stops, 0);
+    assert.deepEqual(app.progress.at(-1), { seconds: 119, limit: 120 });
+    app.advanceTo(120_000, { reverseAtSameTime });
+    assert.equal(app.control.state, 'stopping');
+    assert.equal(first.stops, 1, 'Duration and progress deadlines must stop only once');
+    assert.deepEqual(app.progress.at(-1), { seconds: 120, limit: 120 });
+    app.advanceTo(121_999, { reverseAtSameTime });
+    first.onresult(result('十分鐘後提醒我喝水和休息'));
+    assert.equal(app.control.state, 'stopping');
+    app.advanceTo(122_000, { reverseAtSameTime });
+    assert.equal(app.control.state, 'idle');
+    assert.equal(first.aborts, 1);
+    assert.equal(app.input.value, '十分鐘後提醒我喝水和休息');
+    assert.equal(app.timers.size, 0, 'A late result must not extend the settling deadline');
+    const second = beginListening(app);
+    app.advanceTo(123_000, { reverseAtSameTime });
+    assert.equal(second.stops, 0);
+    assert.equal(app.control.state, 'listening');
+    assert.deepEqual(app.progress.at(-1), { seconds: 1, limit: 120 });
+    second.onend();
+  }
+});
+
+test('manual stop just before the duration deadline wins and settling releases a third consecutive recording', () => {
+  const app = harness({ continuous: true });
+  const first = beginListening(app);
+  app.advanceTo(119_999);
+  app.click();
+  assert.equal(first.stops, 1);
+  app.advanceTo(120_000);
+  assert.equal(first.stops, 1);
+  assert.deepEqual(app.progress.at(-1), { seconds: 119, limit: 120 });
+  app.advanceTo(121_998);
+  assert.equal(app.control.state, 'stopping');
+  app.advanceTo(121_999);
+  assert.equal(app.control.state, 'idle');
+  const second = beginListening(app);
+  second.onresult(result('明早提醒我買早餐'));
+  app.click(); second.onend();
+  const third = beginListening(app);
+  first.onend(); second.onerror({ error: 'network' });
+  app.advanceTo(123_999);
+  assert.equal(app.control.state, 'listening');
+  assert.equal(third.stops, 0);
+  third.onend();
+  assert.equal(app.timers.size, 0);
+});
+
+test('typing before the first final result survives delayed voice text without blocking the next voice draft', () => {
+  const app = harness({ continuous: true });
+  const first = beginListening(app);
+  app.type('明天早上八點提醒我買午餐');
+  first.onresult(result('明天早上八點提醒我買早餐'));
+  assert.equal(app.input.value, '明天早上八點提醒我買午餐');
+  first.onresult({ results: [...result('明天早上八點提醒我買早餐').results, ...result('和牛奶').results] });
+  app.click(); first.onend();
+  assert.equal(app.parsed.title, '買午餐');
+  const second = beginListening(app);
+  second.onresult(result('十分鐘後提醒我喝水')); second.onend();
+  assert.equal(app.input.value, '十分鐘後提醒我喝水');
+});
+
+test('a value changed without an input event before the first final is preserved and single-utterance recovery still runs', () => {
+  const app = harness();
+  app.type('原本的草稿');
+  const first = beginListening(app);
+  app.input.value = '手動修正的新草稿';
+  first.onresult(result('不應覆蓋的辨識結果'));
+  assert.equal(app.input.value, '手動修正的新草稿');
+  app.advanceTo(1999);
+  assert.equal(app.control.state, 'listening');
+  app.advanceTo(2000);
+  assert.equal(app.control.state, 'idle', 'A preserved correction must not bypass missing-end recovery');
+  assert.equal(first.aborts, 1);
+  const second = beginListening(app);
+  second.onresult(result('十分鐘後提醒我喝水')); second.onend();
+  assert.equal(app.input.value, '十分鐘後提醒我喝水', 'A fresh recording may replace the old starting draft');
+  first.onresult(result('過期第一筆')); first.onend();
+  assert.equal(app.input.value, '十分鐘後提醒我喝水');
 });

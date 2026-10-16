@@ -69,7 +69,7 @@ function harness({ supported = true, secure = true, blockedStorage = true, navig
     ...(supported ? { SpeechRecognition: Recognition } : {}),
     addEventListener(type, fn) { const list = windowListeners.get(type) || []; list.push(fn); windowListeners.set(type, list); },
     removeEventListener(type, fn) { windowListeners.set(type, (windowListeners.get(type) || []).filter(item => item !== fn)); },
-    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
+    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay, due: elapsed + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     matchMedia: () => ({ matches: false }),
     location: { assign(url) { navigations.push(url); if (navigationFailure) throw new Error('Synthetic navigation failure'); } },
@@ -97,6 +97,17 @@ function harness({ supported = true, secure = true, blockedStorage = true, navig
     page(type, persisted = true) { for (const fn of windowListeners.get(type) || []) fn({ type, persisted }); },
     visibility(value) { documentObject.visibilityState = value; documentObject.dispatchEvent({ type: 'visibilitychange' }); },
     advanceRecording(seconds) { elapsed += seconds * 1000; },
+    advanceTo(milliseconds) {
+      assert.ok(milliseconds >= elapsed, 'The clock must move forward');
+      while (true) {
+        const next = [...timers].filter(([, timer]) => timer.due <= milliseconds)
+          .sort((a, b) => a[1].due - b[1].due || a[0] - b[0])[0];
+        if (!next) break;
+        const [id, timer] = next;
+        elapsed = timer.due; timers.delete(id); timer.callback();
+      }
+      elapsed = milliseconds;
+    },
     runTimers(delay) { for (const [id, timer] of [...timers]) if (timer.delay === delay && timers.has(id)) { timers.delete(id); timer.callback(); } },
     advance(minutes) { currentTime = new Date(currentTime.getTime() + minutes * 60_000); },
     now: () => new Date(currentTime),
@@ -416,5 +427,53 @@ test('home-screen backgrounding without pagehide releases recording and foregrou
   second.onresult(result('明早提醒我買早餐')); second.onend();
   app.submit();
   assert.equal(new URL(app.navigations[0]).searchParams.get('text'), '買早餐');
+  assertHistoryUntouched(app);
+});
+
+for (const backgroundState of ['starting', 'listening', 'stopping']) {
+  test(`home-screen hidden while ${backgroundState} permits immediate second and third recordings after returning`, () => {
+    const app = harness();
+    app.type('明早提醒我買早餐');
+    app.click('#voice-button');
+    const first = app.instances[0];
+    if (backgroundState !== 'starting') first.onstart();
+    if (backgroundState === 'stopping') app.click('#voice-button');
+    assert.equal(app.control.speech.state, backgroundState);
+    app.visibility('hidden');
+    assert.equal(app.control.speech.state, 'idle');
+    assert.equal(first.aborts, 1);
+    assert.equal(app.get('#voice-button').disabled, false);
+    assert.equal(app.get('#add-button').disabled, false);
+    app.advanceTo(130_000);
+    app.visibility('visible');
+    assert.equal(app.instances.length, 1, 'Foregrounding must not request a microphone');
+    const second = begin(app);
+    first.onstart(); first.onresult(result('過期第一筆')); first.onaudioend(); first.onend();
+    assert.equal(app.control.speech.state, 'listening');
+    assert.equal(app.get('#task-input').value, '明早提醒我買早餐');
+    second.onresult(result('十分鐘後提醒我喝水')); app.click('#voice-button'); second.onend();
+    assert.equal(app.get('#voice-button').disabled, false);
+    const third = begin(app);
+    second.onerror({ error: 'network' }); second.onend();
+    third.onresult(result('半小時後提醒我出門')); app.click('#voice-button');
+    app.advanceTo(132_000);
+    assert.equal(app.control.speech.state, 'idle');
+    assert.equal(app.instances.length, 3);
+    assert.equal(app.get('#voice-button').disabled, false);
+    app.submit();
+    assert.equal(new URL(app.navigations[0]).searchParams.get('text'), '出門');
+    assertHistoryUntouched(app);
+  });
+}
+
+test('a typed correction before the first final result remains the confirmed Google event', () => {
+  const app = harness();
+  const first = begin(app);
+  app.type('明天早上八點提醒我買午餐');
+  first.onresult(result('明天早上八點提醒我買早餐'));
+  app.click('#voice-button'); first.onend();
+  assert.equal(app.get('#task-input').value, '明天早上八點提醒我買午餐');
+  app.submit();
+  assert.equal(new URL(app.navigations[0]).searchParams.get('text'), '買午餐');
   assertHistoryUntouched(app);
 });
