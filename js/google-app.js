@@ -79,7 +79,12 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
   }
 
   speech = setupSpeechInput({
-    input, voiceButton: voice, voiceLabel: $('#voice-label'), speechStatus: $('#speech-status'), windowObject,
+    input, voiceButton: voice, voiceLabel: $('#voice-label'), speechStatus: $('#speech-status'), windowObject, documentObject,
+    continuous: true,
+    onProgress(seconds, limit) {
+      const format = value => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+      $('#speech-timer').textContent = `${format(seconds)} / ${format(limit)}`;
+    },
     isReadOnly: () => navigating,
     onListening(active) { if (active && !listening) draftRevision += 1; listening = active; renderControls(); },
   });

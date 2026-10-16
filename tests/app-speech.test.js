@@ -430,7 +430,7 @@ test('Starting and ending recognition restores the voice and add button states',
   const recognition = app.recognition;
   assert.equal(recognition.lang, 'zh-TW');
   assert.equal(recognition.startCount, 1);
-  assert.equal(getNode('#voice-label').textContent, '聆聽中...');
+  assert.equal(getNode('#voice-label').textContent, '開啟中，點擊取消');
   assert.equal(getNode('#voice-button').getAttribute('aria-pressed'), 'true');
   assert.equal(getNode('#add-button').disabled, true);
 
@@ -1344,10 +1344,9 @@ test('An error followed by manual destination change and delayed end cannot rero
   chooseDestination(app, 'apple');
   assert.equal(app.getNode('#task-destination').value, 'apple');
   app.getNode('#voice-button').dispatchEvent({ type: 'click' });
-  assert.equal(app.recognitions.length, 1, 'The old recognizer must finish before another session starts');
+  assert.equal(app.recognitions.length, 2, 'An error must allow an immediate new session');
   first.onend();
   assert.equal(app.getNode('#task-destination').value, 'apple');
-  app.getNode('#voice-button').dispatchEvent({ type: 'click' });
   const second = app.recognition;
   second.onstart();
   first.onresult(finalResult('舊的錯誤備忘'));

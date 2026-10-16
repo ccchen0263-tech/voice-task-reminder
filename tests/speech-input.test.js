@@ -22,7 +22,7 @@ function createNode() {
   };
 }
 
-function harness({ supported = true, legacy = false, startFailures = 0, stopFailures = 0, readOnly = false, synchronousStopEnd = false } = {}) {
+function harness({ supported = true, legacy = false, continuous = false, startFailures = 0, stopFailures = 0, readOnly = false, synchronousStopEnd = false } = {}) {
   const input = createNode();
   const voiceButton = createNode();
   const voiceLabel = createNode();
@@ -30,6 +30,8 @@ function harness({ supported = true, legacy = false, startFailures = 0, stopFail
   const addButton = createNode();
   const instances = [];
   const parsedInputs = [];
+  const progress = [];
+  let elapsed = 0;
   const timers = new Map();
   const windowListeners = new Map();
   let nextTimer = 0;
@@ -58,6 +60,7 @@ function harness({ supported = true, legacy = false, startFailures = 0, stopFail
   });
   const windowObject = {
     Event: InputEvent,
+    performance: { now: () => elapsed },
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     addEventListener(name, callback) { const callbacks = windowListeners.get(name) || []; callbacks.push(callback); windowListeners.set(name, callbacks); },
@@ -66,11 +69,13 @@ function harness({ supported = true, legacy = false, startFailures = 0, stopFail
   if (supported) windowObject[legacy ? 'webkitSpeechRecognition' : 'SpeechRecognition'] = Recognition;
   const control = setupSpeechInput({
     input, voiceButton, voiceLabel, speechStatus, windowObject,
+    continuous, onProgress: (seconds, limit) => progress.push({ seconds, limit }),
     onListening(active) { addButton.disabled = readOnly || active; },
     isReadOnly: () => readOnly,
   });
   return {
-    input, voiceButton, voiceLabel, speechStatus, addButton, instances, control, parsedInputs,
+    input, voiceButton, voiceLabel, speechStatus, addButton, instances, control, parsedInputs, progress,
+    advance(seconds) { elapsed += seconds * 1000; },
     get parsed() { return parsed; },
     click() { voiceButton.dispatchEvent({ type: 'click' }); },
     type(value) { input.value = value; input.dispatchEvent(new InputEvent('input', { bubbles: true })); },
@@ -115,11 +120,12 @@ test('Taiwan recognition uses listening and stopping states before restoring con
   assert.equal(recognition.lang, 'zh-TW');
   assert.equal(recognition.continuous, false);
   assert.equal(recognition.interimResults, true);
-  assert.equal(app.voiceLabel.textContent, '聆聽中...');
+  assert.equal(app.voiceLabel.textContent, '開啟中，點擊取消');
   assert.equal(app.voiceButton.getAttribute('aria-pressed'), 'true');
   assert.equal(app.addButton.disabled, true);
   recognition.onstart();
   assert.equal(app.control.state, 'listening');
+  assert.equal(app.voiceLabel.textContent, '聆聽中...');
   app.click();
   assert.equal(app.control.state, 'stopping');
   assert.equal(recognition.stops, 1);
@@ -168,7 +174,7 @@ test('network errors restore typing controls and retain their message after end'
   const app = harness();
   const recognition = beginListening(app);
   recognition.onerror({ error: 'network' });
-  assert.equal(app.control.state, 'ending');
+  assert.equal(app.control.state, 'idle');
   assert.equal(app.voiceLabel.textContent, '語音輸入');
   assert.equal(app.addButton.disabled, false);
   assert.equal(app.speechStatus.textContent, '語音辨識服務無法連線，請檢查網路或改用打字。');
@@ -220,29 +226,38 @@ test('all delayed callbacks from an old recognizer leave the active session unto
   assert.equal(app.control.state, 'idle');
 });
 
-test('fast retries between error and end cannot construct or start a second session', () => {
+test('retry immediately after an error starts a fresh session without waiting for old end', () => {
   const app = harness();
   const first = beginListening(app);
   first.onerror({ error: 'no-speech' });
-  for (let index = 0; index < 10; index += 1) app.click();
-  assert.equal(app.instances.length, 1);
+  app.click();
+  assert.equal(app.instances.length, 2);
   assert.equal(first.starts, 1);
   assert.equal(first.stops, 0);
   first.onstart();
   first.onresult(result('錯誤後不應接受文字'));
   assert.equal(app.input.value, '');
-  assert.equal(app.control.state, 'ending');
+  assert.equal(app.control.state, 'starting');
   first.onend();
-  app.click();
   assert.equal(app.instances.length, 2);
   assert.equal(app.control.state, 'starting');
+  const second = app.instances[1];
+  second.onstart(); second.onresult(result('十分鐘後提醒我喝水')); second.onend();
+  assert.equal(app.parsed.title, '喝水');
 });
 
-test('rapid start and stop clicks call each recognizer method at most once', () => {
+test('starting can be cancelled and repeated stop clicks never stop a recognizer twice', () => {
   const app = harness();
-  for (let index = 0; index < 10; index += 1) app.click();
-  const first = app.instances[0];
+  app.click(); app.click();
+  const cancelled = app.instances[0];
+  assert.equal(cancelled.aborts, 1);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(app.timers.size, 0);
+  cancelled.onstart(); cancelled.onresult(result('取消的文字')); cancelled.onend();
+  assert.equal(app.input.value, '');
   assert.equal(app.instances.length, 1);
+  app.click();
+  const first = app.instances[1];
   assert.equal(first.starts, 1);
   assert.equal(first.stops, 0);
   first.onstart();
@@ -254,7 +269,7 @@ test('rapid start and stop clicks call each recognizer method at most once', () 
   first.onend();
   assert.equal(app.parsed.title, '出門');
   app.click();
-  assert.equal(app.instances.length, 2);
+  assert.equal(app.instances.length, 3);
 });
 
 test('a thrown start restores idle controls and its delayed events cannot contaminate a retry', () => {
@@ -280,19 +295,18 @@ test('a thrown start restores idle controls and its delayed events cannot contam
   assert.equal(app.parsed.title, '喝水');
 });
 
-test('a thrown stop does not repeat stop before end or recovery arrives', () => {
+test('a thrown stop immediately resets and permits another recording', () => {
   const app = harness({ stopFailures: 1 });
   const first = beginListening(app);
   app.click();
-  assert.equal(app.control.state, 'ending');
+  assert.equal(app.control.state, 'idle');
   assert.equal(first.stops, 1);
   assert.equal(app.addButton.disabled, false);
   app.click();
   assert.equal(first.stops, 1);
-  assert.equal(app.instances.length, 1);
+  assert.equal(app.instances.length, 2);
   first.onend();
-  assert.equal(app.speechStatus.textContent, '無法結束語音輸入，請稍後再試或改用打字。');
-  app.click();
+  assert.equal(app.control.state, 'starting');
   assert.equal(app.instances.length, 2);
 });
 
@@ -387,7 +401,8 @@ test('stop without end and thrown stop both recover without repeating stop', () 
   for (const stopFailures of [0, 1]) {
     const app = harness({ stopFailures });
     const first = beginListening(app);
-    app.click(); app.click();
+    app.click();
+    if (!stopFailures) app.click();
     assert.equal(first.stops, 1);
     app.runTimers(2000);
     assert.equal(app.control.state, 'idle');
@@ -425,14 +440,13 @@ test('normal end cancels watchdogs and a stale captured timer cannot stop a new 
 });
 
 test('pagehide and BFCache pageshow reset every active state without starting a microphone', () => {
-  for (const state of ['starting', 'listening', 'stopping', 'ending']) {
+  for (const state of ['starting', 'listening', 'stopping']) {
     const app = harness();
     app.type('保留草稿');
     app.click();
     const first = app.instances[0];
     if (state !== 'starting') first.onstart();
     if (state === 'stopping') app.click();
-    if (state === 'ending') first.onerror({ error: 'no-speech' });
     assert.equal(app.control.state, state);
     app.pageEvent('pagehide', true);
     assert.equal(app.control.state, 'idle');
@@ -486,6 +500,12 @@ test('a silent listening session has a finite limit and destroy prevents further
   const app = harness();
   const first = beginListening(app);
   app.runTimers(60_000);
+  assert.equal(first.stops, 0);
+  assert.equal(app.control.state, 'listening');
+  app.runTimers(120_000);
+  assert.equal(first.stops, 1);
+  assert.equal(app.control.state, 'stopping');
+  app.runTimers(2000);
   assert.equal(first.aborts, 1);
   assert.equal(app.control.state, 'idle');
   beginListening(app);
@@ -493,4 +513,84 @@ test('a silent listening session has a finite limit and destroy prevents further
   app.click(); app.pageEvent('pageshow', true);
   assert.equal(app.instances.length, 2);
   assert.equal(app.timers.size, 0);
+});
+
+test('continuous results accumulate through pauses without shortening the 120-second limit', () => {
+  const app = harness({ continuous: true });
+  const recognition = beginListening(app);
+  assert.equal(recognition.continuous, true);
+  recognition.onresult(result('明天早上八點'));
+  app.runTimers(2000);
+  assert.equal(app.control.state, 'listening');
+  assert.equal(recognition.aborts, 0);
+  app.advance(61); app.runTimers(1000);
+  assert.deepEqual(app.progress.at(-1), { seconds: 61, limit: 120 });
+  recognition.onresult({ results: [
+    ...result('明天早上八點').results,
+    ...result('提醒我買早餐').results,
+  ] });
+  assert.equal(app.input.value, '明天早上八點提醒我買早餐');
+  assert.equal(app.parsed.title, '買早餐');
+  assert.equal(recognition.stops, 0);
+  app.advance(59); app.runTimers(120_000);
+  assert.equal(recognition.stops, 1);
+  assert.equal(app.control.state, 'stopping');
+  assert.deepEqual(app.progress.at(-1), { seconds: 120, limit: 120 });
+  recognition.onresult(result('明天早上八點提醒我買早餐和牛奶'));
+  app.runTimers(2000);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(app.input.value, '明天早上八點提醒我買早餐和牛奶');
+  assert.match(app.speechStatus.textContent, /120 秒/);
+  assert.equal(app.timers.size, 0);
+  const second = beginListening(app);
+  assert.equal(second.starts, 1);
+  assert.deepEqual(app.progress.at(-1), { seconds: 0, limit: 120 });
+});
+
+test('manual stop before the limit keeps the final result and freezes the elapsed time', () => {
+  const app = harness({ continuous: true });
+  const recognition = beginListening(app);
+  app.advance(17); app.runTimers(1000);
+  app.click();
+  assert.equal(recognition.stops, 1);
+  assert.equal(app.voiceLabel.textContent, '結束中...');
+  app.advance(2);
+  recognition.onresult(result('十分鐘後提醒我喝水'));
+  recognition.onend();
+  assert.equal(app.input.value, '十分鐘後提醒我喝水');
+  assert.deepEqual(app.progress.at(-1), { seconds: 17, limit: 120 });
+  app.runTimers(120_000); app.runTimers(1000); app.runTimers(2000);
+  assert.equal(recognition.stops, 1);
+  assert.equal(recognition.aborts, 0);
+  assert.equal(app.timers.size, 0);
+});
+
+test('audio ending without an end callback recovers even in continuous mode', () => {
+  const app = harness({ continuous: true });
+  const first = beginListening(app);
+  first.onaudioend();
+  assert.equal(app.control.state, 'stopping');
+  const recovery = [...app.timers.values()][0];
+  first.onresult(result('半小時後提醒我出門'));
+  assert.equal([...app.timers.values()][0], recovery, 'A late result must not extend the stop deadline');
+  app.runTimers(2000);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(app.parsed.title, '出門');
+  const second = beginListening(app);
+  first.onaudioend(); first.onend();
+  assert.equal(app.control.state, 'listening');
+  assert.equal(second.aborts, 0);
+});
+
+test('old duration and progress callbacks cannot affect the next recording', () => {
+  const app = harness({ continuous: true });
+  const first = beginListening(app);
+  const oldTimers = [...app.timers.values()];
+  app.advance(5); first.onend();
+  const second = beginListening(app);
+  for (const timer of oldTimers) timer.callback();
+  assert.equal(app.control.state, 'listening');
+  assert.equal(second.stops, 0);
+  assert.equal(second.aborts, 0);
+  assert.deepEqual(app.progress.at(-1), { seconds: 0, limit: 120 });
 });

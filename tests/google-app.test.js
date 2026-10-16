@@ -24,6 +24,7 @@ function harness({ supported = true, secure = true, blockedStorage = true, navig
   const originalHistory = [...legacyHistory];
   const storageAccess = { local: 0, session: 0, indexedDB: 0, mutations: 0 };
   let nextTimer = 0;
+  let elapsed = 0;
   let currentTime = new Date('2030-01-02T08:00:00+08:00');
 
   function node(id) {
@@ -64,6 +65,7 @@ function harness({ supported = true, secure = true, blockedStorage = true, navig
   }
   const windowObject = {
     Event: InputEvent, isSecureContext: secure,
+    performance: { now: () => elapsed },
     ...(supported ? { SpeechRecognition: Recognition } : {}),
     addEventListener(type, fn) { const list = windowListeners.get(type) || []; list.push(fn); windowListeners.set(type, list); },
     removeEventListener(type, fn) { windowListeners.set(type, (windowListeners.get(type) || []).filter(item => item !== fn)); },
@@ -84,7 +86,7 @@ function harness({ supported = true, secure = true, blockedStorage = true, navig
     sessionStorage: { get() { storageAccess.session += 1; throw new Error('Synthetic sessionStorage denial'); } },
     indexedDB: { get() { storageAccess.indexedDB += 1; throw new Error('Synthetic IndexedDB denial'); } },
   });
-  const documentObject = { querySelector: get, querySelectorAll: selector => selector === '[data-example]' ? examples : [], documentElement: { dataset: {} } };
+  const documentObject = { ...node('document'), visibilityState: 'visible', querySelector: get, querySelectorAll: selector => selector === '[data-example]' ? examples : [], documentElement: { dataset: {} } };
   const control = setupGoogleApp({ documentObject, windowObject, now: () => new Date(currentTime) });
   return {
     get, control, instances, navigations, storageAccess, examples, legacyHistory, originalHistory,
@@ -93,6 +95,8 @@ function harness({ supported = true, secure = true, blockedStorage = true, navig
     click(selector) { get(selector).dispatchEvent({ type: 'click' }); },
     submit() { get('#task-form').dispatchEvent({ type: 'submit' }); },
     page(type, persisted = true) { for (const fn of windowListeners.get(type) || []) fn({ type, persisted }); },
+    visibility(value) { documentObject.visibilityState = value; documentObject.dispatchEvent({ type: 'visibilitychange' }); },
+    advanceRecording(seconds) { elapsed += seconds * 1000; },
     runTimers(delay) { for (const [id, timer] of [...timers]) if (timer.delay === delay && timers.has(id)) { timers.delete(id); timer.callback(); } },
     advance(minutes) { currentTime = new Date(currentTime.getTime() + minutes * 60_000); },
     now: () => new Date(currentTime),
@@ -142,15 +146,16 @@ test('first, second and third voice drafts navigate only on confirmation and rec
   assertHistoryUntouched(app);
 });
 
-test('first final without end, second network error without end, and third recording all remain recoverable', () => {
+test('first stop without end, immediate retry after second error, and third recording all remain recoverable', () => {
   const app = harness();
   const first = begin(app); first.onresult(result('十分鐘後提醒我喝水'));
   assert.equal(app.get('#add-button').disabled, true);
+  app.click('#voice-button');
   app.runTimers(2000);
   assert.equal(app.get('#add-button').disabled, false);
   app.submit(); app.page('pagehide'); app.page('pageshow');
   const second = begin(app); second.onerror({ error: 'network' });
-  app.runTimers(2000);
+  assert.equal(app.control.speech.state, 'idle');
   const third = begin(app); third.onresult(result('明早提醒我買早餐')); third.onend();
   first.onresult(result('過期第一筆')); second.onend();
   assert.equal(app.get('#task-input').value, '明早提醒我買早餐');
@@ -368,4 +373,48 @@ test('Google URL rejects missing names and invalid times instead of silently cre
     assert.throws(() => createGoogleCalendarDraftURL({ title: '事件', reminderAt }));
   }
   assert.throws(() => createGoogleCalendarDraftURL({ title: '  ', reminderAt: '2030-01-02T00:00:00Z' }));
+});
+
+test('the Google form displays elapsed time and supports 120 seconds before a second and third recording', () => {
+  const app = harness();
+  assert.equal(app.get('#speech-timer').textContent, '00:00 / 02:00');
+  for (const text of ['十分鐘後提醒我喝水', '明天早上八點提醒我買早餐', '半小時後提醒我出門']) {
+    const recognition = begin(app);
+    assert.equal(recognition.continuous, true);
+    assert.equal(app.get('#speech-timer').textContent, '00:00 / 02:00');
+    recognition.onresult(result(text));
+    app.advanceRecording(75); app.runTimers(1000); app.runTimers(2000);
+    assert.equal(app.get('#speech-timer').textContent, '01:15 / 02:00');
+    assert.equal(app.control.speech.state, 'listening');
+    assert.equal(app.get('#add-button').disabled, true);
+    app.advanceRecording(45); app.runTimers(120_000);
+    assert.equal(app.get('#speech-timer').textContent, '02:00 / 02:00');
+    assert.equal(recognition.stops, 1);
+    app.runTimers(2000);
+    assert.equal(app.get('#add-button').disabled, false);
+    assert.equal(app.get('#voice-button').disabled, false);
+    app.submit(); app.page('pagehide'); app.page('pageshow');
+  }
+  assert.equal(app.instances.length, 3);
+  assert.equal(app.navigations.length, 3);
+  assertHistoryUntouched(app);
+});
+
+test('home-screen backgrounding without pagehide releases recording and foregrounding never starts the mic', () => {
+  const app = harness();
+  const first = begin(app);
+  first.onresult(result('十分鐘後提醒我喝水'));
+  app.visibility('hidden');
+  assert.equal(first.aborts, 1);
+  assert.equal(app.control.speech.state, 'idle');
+  assert.equal(app.get('#voice-button').disabled, false);
+  assert.equal(app.get('#task-input').value, '十分鐘後提醒我喝水');
+  app.visibility('visible');
+  assert.equal(app.instances.length, 1);
+  const second = begin(app);
+  first.onresult(result('不要覆蓋下一筆')); first.onend();
+  second.onresult(result('明早提醒我買早餐')); second.onend();
+  app.submit();
+  assert.equal(new URL(app.navigations[0]).searchParams.get('text'), '買早餐');
+  assertHistoryUntouched(app);
 });
