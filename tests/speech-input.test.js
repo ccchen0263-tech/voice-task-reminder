@@ -30,13 +30,17 @@ function harness({ supported = true, legacy = false, startFailures = 0, stopFail
   const addButton = createNode();
   const instances = [];
   const parsedInputs = [];
+  const timers = new Map();
+  const windowListeners = new Map();
+  let nextTimer = 0;
   let parsed;
   const clock = new Date('2026-10-13T08:00:00+08:00');
   class InputEvent {
     constructor(type, options = {}) { this.type = type; this.bubbles = options.bubbles || false; }
   }
   class Recognition {
-    constructor() { this.starts = 0; this.stops = 0; instances.push(this); }
+    constructor() { this.starts = 0; this.stops = 0; this.aborts = 0; instances.push(this); }
+    abort() { this.aborts += 1; }
     start() {
       this.starts += 1;
       if (startFailures > 0) { startFailures -= 1; throw new Error('Synthetic start failure'); }
@@ -52,7 +56,13 @@ function harness({ supported = true, legacy = false, startFailures = 0, stopFail
     parsedInputs.push(input.value);
     parsed = parseTaskInput(input.value, clock);
   });
-  const windowObject = { Event: InputEvent };
+  const windowObject = {
+    Event: InputEvent,
+    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    addEventListener(name, callback) { const callbacks = windowListeners.get(name) || []; callbacks.push(callback); windowListeners.set(name, callbacks); },
+    removeEventListener(name, callback) { windowListeners.set(name, (windowListeners.get(name) || []).filter(item => item !== callback)); },
+  };
   if (supported) windowObject[legacy ? 'webkitSpeechRecognition' : 'SpeechRecognition'] = Recognition;
   const control = setupSpeechInput({
     input, voiceButton, voiceLabel, speechStatus, windowObject,
@@ -65,6 +75,14 @@ function harness({ supported = true, legacy = false, startFailures = 0, stopFail
     click() { voiceButton.dispatchEvent({ type: 'click' }); },
     type(value) { input.value = value; input.dispatchEvent(new InputEvent('input', { bubbles: true })); },
     setReadOnly(value) { readOnly = value; },
+    timers,
+    runTimers(delay) {
+      for (const [id, timer] of [...timers]) {
+        if (timer.delay !== delay || !timers.has(id)) continue;
+        timers.delete(id); timer.callback();
+      }
+    },
+    pageEvent(type, persisted = false) { for (const callback of windowListeners.get(type) || []) callback({ type, persisted }); },
   };
 }
 
@@ -262,7 +280,7 @@ test('a thrown start restores idle controls and its delayed events cannot contam
   assert.equal(app.parsed.title, '喝水');
 });
 
-test('a thrown stop does not repeat stop or unlock retry until end arrives', () => {
+test('a thrown stop does not repeat stop before end or recovery arrives', () => {
   const app = harness({ stopFailures: 1 });
   const first = beginListening(app);
   app.click();
@@ -328,4 +346,151 @@ test('permission and microphone errors retain their existing fallback messages',
     assert.equal(app.speechStatus.textContent, message);
     assert.equal(app.control.state, 'idle');
   }
+});
+
+test('a missing start callback times out and late events cannot affect the next session', () => {
+  const app = harness();
+  app.click();
+  const first = app.instances[0];
+  app.runTimers(10_000);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(first.aborts, 1);
+  assert.equal(app.addButton.disabled, false);
+  assert.match(app.speechStatus.textContent, /啟動逾時/);
+  const second = beginListening(app);
+  first.onstart(); first.onresult(result('舊的文字')); first.onend();
+  assert.equal(app.control.state, 'listening');
+  assert.equal(app.input.value, '');
+  assert.equal(second.starts, 1);
+});
+
+test('error without end releases retry after recovery and preserves the error and manual text', () => {
+  const app = harness();
+  const first = beginListening(app);
+  first.onerror({ error: 'network' });
+  app.type('明早提醒我買早餐');
+  app.runTimers(2000);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(app.input.value, '明早提醒我買早餐');
+  assert.match(app.speechStatus.textContent, /無法連線/);
+  assert.equal(first.aborts, 1);
+  const second = beginListening(app);
+  second.onresult(result('十分鐘後提醒我喝水'));
+  second.onend();
+  const third = beginListening(app);
+  third.onresult(result('半小時後提醒我出門')); third.onend();
+  assert.equal(app.instances.length, 3);
+  assert.equal(app.parsed.title, '出門');
+});
+
+test('stop without end and thrown stop both recover without repeating stop', () => {
+  for (const stopFailures of [0, 1]) {
+    const app = harness({ stopFailures });
+    const first = beginListening(app);
+    app.click(); app.click();
+    assert.equal(first.stops, 1);
+    app.runTimers(2000);
+    assert.equal(app.control.state, 'idle');
+    assert.equal(first.aborts, 1);
+    app.click();
+    assert.equal(app.instances.length, 2);
+    assert.equal(first.stops, 1);
+  }
+});
+
+test('a final result without end releases controls without overwriting a manual correction', () => {
+  const app = harness();
+  const first = beginListening(app);
+  first.onresult(result('明早提醒我買早餐'));
+  app.type('明早提醒我買午餐');
+  app.runTimers(2000);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(app.addButton.disabled, false);
+  assert.equal(app.input.value, '明早提醒我買午餐');
+  assert.equal(first.aborts, 1);
+});
+
+test('normal end cancels watchdogs and a stale captured timer cannot stop a new session', () => {
+  const app = harness();
+  const first = beginListening(app);
+  first.onresult(result('十分鐘後提醒我喝水'));
+  const staleTimer = [...app.timers.values()][0].callback;
+  first.onend();
+  assert.equal(app.timers.size, 0);
+  const second = beginListening(app);
+  staleTimer();
+  assert.equal(app.control.state, 'listening');
+  assert.equal(second.aborts, 0);
+  assert.equal(app.addButton.disabled, true);
+});
+
+test('pagehide and BFCache pageshow reset every active state without starting a microphone', () => {
+  for (const state of ['starting', 'listening', 'stopping', 'ending']) {
+    const app = harness();
+    app.type('保留草稿');
+    app.click();
+    const first = app.instances[0];
+    if (state !== 'starting') first.onstart();
+    if (state === 'stopping') app.click();
+    if (state === 'ending') first.onerror({ error: 'no-speech' });
+    assert.equal(app.control.state, state);
+    app.pageEvent('pagehide', true);
+    assert.equal(app.control.state, 'idle');
+    assert.equal(first.aborts, 1);
+    assert.equal(app.timers.size, 0);
+    app.pageEvent('pageshow', true);
+    assert.equal(app.instances.length, 1);
+    assert.equal(app.addButton.disabled, false);
+    assert.equal(app.input.value, '保留草稿');
+    const second = beginListening(app);
+    first.onresult(result('舊的返回文字')); first.onend();
+    assert.equal(app.control.state, 'listening');
+    assert.equal(app.input.value, '保留草稿');
+    assert.equal(second.aborts, 0);
+  }
+});
+
+test('pageshow alone recovers stale active state and never automatically requests another session', () => {
+  const app = harness();
+  const first = beginListening(app);
+  app.pageEvent('pageshow', true);
+  assert.equal(app.control.state, 'idle');
+  assert.equal(first.aborts, 1);
+  assert.equal(app.instances.length, 1);
+  app.click();
+  assert.equal(app.instances.length, 2);
+});
+
+test('manual reset invalidates first, even if abort synchronously sends callbacks or throws', () => {
+  for (const throws of [false, true]) {
+    const app = harness();
+    const first = beginListening(app);
+    first.onresult(result('十分鐘後提醒我喝水'));
+    first.abort = () => {
+      first.onerror({ error: 'aborted' }); first.onend();
+      if (throws) throw new Error('Synthetic abort failure');
+    };
+    app.control.reset();
+    assert.equal(app.control.state, 'idle');
+    assert.equal(app.input.value, '十分鐘後提醒我喝水');
+    assert.match(app.speechStatus.textContent, /已重設/);
+    assert.equal(app.timers.size, 0);
+    const second = beginListening(app);
+    first.onresult(result('過期結果'));
+    assert.equal(app.input.value, '十分鐘後提醒我喝水');
+    assert.equal(second.starts, 1);
+  }
+});
+
+test('a silent listening session has a finite limit and destroy prevents further recording', () => {
+  const app = harness();
+  const first = beginListening(app);
+  app.runTimers(60_000);
+  assert.equal(first.aborts, 1);
+  assert.equal(app.control.state, 'idle');
+  beginListening(app);
+  app.control.destroy();
+  app.click(); app.pageEvent('pageshow', true);
+  assert.equal(app.instances.length, 2);
+  assert.equal(app.timers.size, 0);
 });

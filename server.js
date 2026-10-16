@@ -11,7 +11,7 @@ const routes = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
-  ...['app', 'time-parser', 'calendar', 'task-store', 'settings-store', 'attachment-store', 'task-view', 'planner', 'recurrence', 'reminders', 'speech-input', 'theme', 'destinations'].map(name => [`/js/${name}.js`, [`js/${name}.js`, 'text/javascript; charset=utf-8']]),
+  ...['google-app', 'google-calendar', 'time-parser', 'planner', 'speech-input'].map(name => [`/js/${name}.js`, [`js/${name}.js`, 'text/javascript; charset=utf-8']]),
 ]);
 
 const server = http.createServer(async (request, response) => {

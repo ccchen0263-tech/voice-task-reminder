@@ -307,6 +307,8 @@ function createHarness({
         windowListeners.set(name, listeners);
       },
       isSecureContext: true,
+      setTimeout: (callback, delay) => context.setTimeout(callback, delay),
+      clearTimeout: id => context.clearTimeout(id),
       location: { assign(url) {
         navigationCalls.push({ url, savedTasks: JSON.parse(memoryStorage.getItem(STORAGE_KEY)) });
         if (navigationFailure) throw new Error('Synthetic navigation failure');

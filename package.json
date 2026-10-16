@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "手機優先、規則式時間解析的本機語音待辦提醒 App",
+  "description": "手機優先、規則式時間解析的 Google Calendar 語音輸入 App",
   "scripts": {
     "start": "node server.js",
     "build": "node scripts/build.js",

@@ -235,6 +235,28 @@ textarea:focus, .field-group input:focus, .field-group select:focus { box-shadow
 #theme-toggle:hover { border-color: var(--accent); }
 #theme-toggle[data-save-error="true"] { border-color: var(--warning-ink); }
 #theme-toggle[data-save-error="true"]::after { content: " !"; color: var(--warning-ink); font-weight: 750; }
+.google-only .app-shell { max-width: 840px; padding-bottom: max(36px, env(safe-area-inset-bottom)); }
+.google-only .app-header { flex-wrap: wrap; }
+.google-only .header-copy { flex: 1 1 240px; min-width: 0; }
+.google-only .composer-heading { flex-wrap: wrap; }
+.google-badge { border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; color: var(--muted); font-size: 12px; }
+.google-voice-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.google-only .voice-button { flex-direction: row; min-width: 140px; padding: 12px 18px; }
+.google-only .secondary-button { white-space: normal; }
+.google-time-field { margin-top: 20px; }
+.google-only .field-group input, .google-only .field-group select { font-size: 16px; min-width: 0; max-width: 100%; }
+.text-button { border: 0; background: none; text-align: left; padding: 10px 0; min-height: 44px; color: var(--accent-dark); text-decoration: underline; font: inherit; font-size: 13px; }
+.google-notes { grid-column: 1 / -1; }
+.google-examples { margin-top: 15px; }
+.google-submit-actions { display: grid; gap: 10px; margin-top: 15px; }
+.google-submit-actions .button { width: 100%; overflow-wrap: anywhere; }
+.google-app-status { margin-top: 16px; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.google-app-status:empty { display: none; }
+.google-handoff { margin-top: 18px; border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.google-handoff h3 { font-size: 15px; }
+#handoff-title { overflow-wrap: anywhere; margin-top: 5px; }
+.google-handoff a { margin-top: 10px; max-width: 100%; text-align: center; }
+@media (min-width: 640px) { .google-submit-actions { grid-template-columns: minmax(0, 1fr) auto; } }
 .attachment-button, .remove-attachment, .remove-place { min-height: 44px; }
 :root :is(button, a, summary, input, select, textarea):focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .check-control input:focus-visible + .check-visual { outline: 3px solid var(--focus); outline-offset: 4px; }
