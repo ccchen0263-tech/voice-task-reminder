@@ -61,10 +61,11 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
     $('#parse-preview').hidden = !raw;
     const parsed = parsedDraft();
     if (!manualTime) time.value = toDateTimeLocal(parsed.reminderAt);
+    $('#use-parsed-time').hidden = !manualTime;
     $('#preview-title').textContent = parsed.title || '請補上待辦事項';
     $('#preview-time').textContent = parsed.reminderAt ? formatter.format(new Date(parsed.reminderAt)).replace(/24:/, '00:') : '請補上開始時間';
-    $('#preview-note').textContent = !parsed.reminderAt ? '沒有明確時間，請在下方指定開始時間後再開啟 Google Calendar。'
-      : manualTime ? '使用你指定的時間；結束時間為 30 分鐘後。' : `${parsed.explanation || ''}相對時間會在確認時重新計算。`;
+    $('#preview-note').textContent = !parsed.reminderAt ? '還沒有時間，請在下方選擇。'
+      : manualTime ? '已使用你指定的時間。' : '依裝置時區；相對時間於送出時計算。';
   }
 
   function clearDraft() {
@@ -97,7 +98,7 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
   for (const field of [notes, location, repeat]) {
     field.addEventListener('input', draftChanged); field.addEventListener('change', draftChanged);
   }
-  $('#use-parsed-time').addEventListener('click', () => { manualTime = false; draftChanged(); updatePreview(); });
+  $('#use-parsed-time').addEventListener('click', () => { manualTime = false; draftChanged(); updatePreview(); time.focus(); });
   resetVoice.addEventListener('click', () => { speech.reset(); releaseNavigation(); });
   $('#clear-draft').addEventListener('click', () => { clearDraft(); status.textContent = '已清空本分頁草稿，可以輸入下一筆。'; });
   documentObject.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => {
@@ -164,7 +165,11 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
 
   const dark = windowObject.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
   root.dataset.theme = dark ? 'dark' : 'light';
-  function renderThemeButton() { $('#theme-toggle').textContent = root.dataset.theme === 'dark' ? '切換淺色' : '切換深色'; }
+  function renderThemeButton() {
+    const label = root.dataset.theme === 'dark' ? '切換淺色主題' : '切換深色主題';
+    $('#theme-toggle').setAttribute('aria-label', label);
+    $('#theme-toggle').setAttribute('title', label);
+  }
   $('#theme-toggle').addEventListener('click', () => {
     root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'; renderThemeButton();
   });

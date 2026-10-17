@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#6355d8">
+  <meta name="theme-color" content="#247d69">
   <meta name="description" content="用語音或文字準備 Google Calendar 事件，確認後前往 Google 儲存。">
   <title>AI 語音待辦提醒系統</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%236355d8'/%3E%3Cpath d='m17 33 10 10 21-24' fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
@@ -14,43 +14,41 @@
   <main class="app-shell">
     <header class="app-header">
       <div class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="12" rx="3.5"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/></svg></div>
-      <div class="header-copy"><h1>AI 語音待辦提醒系統</h1><p>說出行程，確認後前往 Google Calendar</p></div>
-      <button id="theme-toggle" type="button" aria-label="切換日夜主題">切換深色</button>
+      <div class="header-copy"><h1>AI 語音待辦提醒系統</h1><p>說出行程，確認後前往 Google</p></div>
+      <button id="theme-toggle" type="button" aria-label="切換深色主題" title="切換深色主題"><svg class="theme-moon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M20.5 14A8.5 8.5 0 0 1 10 3.5 8.5 8.5 0 1 0 20.5 14Z"/></svg><svg class="theme-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button>
     </header>
     <section class="composer" aria-labelledby="composer-title">
-      <div class="composer-heading"><h2 id="composer-title">新增 Google 行程</h2><span class="google-badge">Google Calendar</span></div>
+      <div class="composer-heading"><h2 id="composer-title">新增行程</h2><span class="google-badge">Google Calendar</span></div>
       <form id="task-form" novalidate>
         <label for="task-input" class="sr-only">待辦事項</label>
-        <textarea id="task-input" placeholder="請輸入待辦事項" rows="3" maxlength="1000" aria-describedby="input-hint" required></textarea>
+        <textarea id="task-input" placeholder="請輸入待辦事項" rows="2" maxlength="1000" aria-describedby="input-hint" required></textarea>
         <div class="google-voice-controls">
           <button id="voice-button" class="button voice-button" type="button" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 7v5a6 6 0 0 0 12 0V7M12 18v3M9 21h6"/></svg><span id="voice-label">語音輸入</span></button>
           <button id="reset-voice" class="button secondary-button" type="button">重設語音</button>
         </div>
-        <p class="speech-duration"><span id="speech-timer" aria-label="已錄音時間與上限">00:00 / 02:00</span><span>最多 120 秒，可提前停止</span></p>
-        <p id="input-hint" class="hint">例如「十分鐘後提醒我喝水」。錄音中再點語音按鈕即可停止；瀏覽器也可能提前結束。無反應時可點「重設語音」，或使用手機鍵盤麥克風。</p>
+        <p class="speech-duration"><span id="speech-timer" aria-label="已錄音時間與上限">00:00 / 02:00</span><span>最長 120 秒，再點一次停止</span></p>
+        <p id="input-hint" class="hint">可以說「明天早上八點提醒我買早餐」</p>
         <p id="speech-status" class="hint speech-status" role="status" aria-live="polite"></p>
         <div id="parse-preview" class="parse-preview" hidden aria-live="polite" aria-atomic="true">
-          <div><span class="preview-label">行程</span><strong id="preview-title"></strong></div>
-          <div><span class="preview-label">開始</span><span id="preview-time"></span></div>
+          <div><span class="preview-label">行程名稱</span><strong id="preview-title"></strong></div>
+          <div class="sr-only"><span>開始</span><span id="preview-time"></span></div>
           <p id="preview-note" class="preview-note"></p>
         </div>
-        <div class="field-group google-time-field"><label for="task-time">開始時間</label><input id="task-time" type="datetime-local" required><button id="use-parsed-time" class="text-button" type="button">改用輸入內容的時間</button></div>
+        <div class="field-group google-time-field"><div class="time-field-heading"><label for="task-time">開始時間</label><span>預設 30 分鐘</span></div><input id="task-time" type="datetime-local" required><button id="use-parsed-time" class="text-button" type="button" hidden>改用輸入內容的時間</button></div>
         <details class="task-options">
-          <summary>更多內容（地點、備註、重複）</summary>
+          <summary>地點、備註與重複<span class="optional-label">選填</span></summary>
           <div class="details-grid">
             <div class="field-group"><label for="task-location">地點或地址</label><input id="task-location" maxlength="400" placeholder="例如：台北車站"></div>
             <div class="field-group"><label for="task-repeat">希望重複</label><select id="task-repeat"><option value="none">一次（不重複）</option><option value="daily">每天</option><option value="weekly">每週</option><option value="weekdays">週一至週五</option><option value="monthly">每月</option><option value="yearly">每年</option></select><p class="field-hint">會帶入描述；仍需在 Google Calendar 設定重複規則。</p></div>
             <div class="field-group google-notes"><label for="task-notes">備註</label><textarea id="task-notes" rows="2" maxlength="2000" placeholder="會議重點、購物清單"></textarea></div>
           </div>
         </details>
-        <div class="examples google-examples" aria-label="試用時間句子"><span>試試看</span><button type="button" data-example="十分鐘後提醒我喝水">十分鐘後喝水</button><button type="button" data-example="明天早上八點提醒我買早餐">明早買早餐</button></div>
-        <div class="google-submit-actions"><button id="add-button" type="submit" class="button primary-button">確認並開啟 Google Calendar</button><button id="clear-draft" type="button" class="button secondary-button">清空，輸入下一筆</button></div>
-        <p class="hint">會在同一分頁開啟 Google 草稿。請確認行事曆、時間、重複與提醒後按「儲存」，再返回輸入下一筆。</p>
+        <div class="google-submit-actions"><button id="add-button" type="submit" class="button primary-button">開啟 Google Calendar<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button><p class="google-save-hint">接著在 Google 按「儲存」，才會加入行事曆。</p><button id="clear-draft" type="button" class="text-button clear-draft">清空，輸入下一筆</button></div>
       </form>
       <p id="app-status" class="google-app-status" role="status" aria-live="polite"></p>
       <aside id="google-handoff" class="google-handoff" hidden aria-labelledby="handoff-heading"><h3 id="handoff-heading">上一筆 Google 草稿</h3><p id="handoff-title"></p><p class="field-hint">尚未確認儲存。若已在 Google 儲存，請勿重複新增。</p><a id="google-retry" class="button calendar-button" target="_self">重新開啟這筆 Google 草稿</a></aside>
     </section>
-    <footer class="app-footer"><p>內容只暫留本分頁，重新整理可能消失；本頁不新增本機待辦，舊版資料保持原樣。</p><p>Google 事件仍需你最後儲存；語音支援依瀏覽器與麥克風權限而異。</p></footer>
+    <footer class="app-footer"><details class="usage-help"><summary>使用說明與範例</summary><div class="help-content"><div class="examples google-examples" aria-label="試用時間句子"><button type="button" data-example="十分鐘後提醒我喝水">十分鐘後喝水</button><button type="button" data-example="明天早上八點提醒我買早餐">明早買早餐</button></div><p>語音最長 120 秒，可提前停止；瀏覽器也可能提前結束。沒有反應時請點「重設語音」，或用手機鍵盤的麥克風。</p><p>會在同一分頁開啟 Google 草稿。確認行事曆、時間、重複與提醒後，請按「儲存」，再返回輸入下一筆。</p><p>內容只暫留本分頁，重新整理可能消失。本頁不新增本機待辦，舊版資料保持原樣；語音支援依瀏覽器與麥克風權限而異。</p></div></details></footer>
   </main>
 </body>
 </html>
