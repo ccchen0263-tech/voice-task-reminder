@@ -34,7 +34,7 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
   let handoffSnapshot = '';
 
   function draftSnapshot() { return JSON.stringify([input.value, time.value, notes.value, location.value, repeat.value, manualTime]); }
-  function draftChanged() { draftRevision += 1; releaseNavigation(); }
+  function draftChanged() { draftRevision += 1; releaseNavigation(); status.textContent = ''; }
 
   function renderControls() {
     add.disabled = listening || navigating;
