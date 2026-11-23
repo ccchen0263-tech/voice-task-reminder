@@ -10,8 +10,7 @@ if (dirname(outputDirectory) !== projectRoot || basename(outputDirectory) !== 'd
   throw new Error('Build output must be the dist directory inside this project.');
 }
 
-// Only the active Google flow. Legacy source/data helpers stay in the repository,
-// but are not shipped or executed by this candidate.
+// Only the files the page needs (optional: GitHub Pages can also serve the repo root).
 const javascriptFiles = ['google-app', 'google-calendar', 'time-parser', 'planner', 'speech-input']
   .map(name => join('js', `${name}.js`));
 const assets = ['index.html', 'styles.css', ...javascriptFiles];
