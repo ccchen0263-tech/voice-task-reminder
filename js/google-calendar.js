@@ -4,6 +4,16 @@ export const GOOGLE_REPEAT_LABELS = {
   none: '一次（不重複）', daily: '每天', weekly: '每週', weekdays: '週一至週五', monthly: '每月', yearly: '每年',
 };
 
+// Google 的預填連結可帶 recur=RRULE:...（社群常用，但 Google 官方文件沒有正式列出，不保證永遠有效）。
+// 所以同時把「希望重複」寫進描述，萬一沒有帶入，使用者仍看得到並可手動設定。
+export const GOOGLE_REPEAT_RULES = {
+  daily: 'RRULE:FREQ=DAILY',
+  weekly: 'RRULE:FREQ=WEEKLY',
+  weekdays: 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+  monthly: 'RRULE:FREQ=MONTHLY',
+  yearly: 'RRULE:FREQ=YEARLY',
+};
+
 /** Pure URL preparation. No account access, local task ID, storage or network request. */
 export function createGoogleCalendarDraftURL(event) {
   const title = String(event?.title ?? '').trim();
@@ -19,7 +29,7 @@ export function createGoogleCalendarDraftURL(event) {
   const details = [
     `原始輸入：${String(event.originalInput ?? '')}`,
     ...(notes ? [`備註：${notes}`] : []),
-    ...(repeat !== 'none' ? [`希望重複：${GOOGLE_REPEAT_LABELS[repeat]}。請在 Google Calendar 確認重複規則後儲存。`] : []),
+    ...(repeat !== 'none' ? [`希望重複：${GOOGLE_REPEAT_LABELS[repeat]}。已嘗試帶入重複設定，請在 Google Calendar 確認重複規則後儲存。`] : []),
     '由語音行事曆準備；仍需在 Google Calendar 確認時間、行事曆與提醒並儲存。',
   ].join('\n');
   const url = new URL('https://calendar.google.com/calendar/r/eventedit');
@@ -28,6 +38,7 @@ export function createGoogleCalendarDraftURL(event) {
   url.searchParams.set('dates', `${formatUTC(start)}/${formatUTC(end)}`);
   url.searchParams.set('details', details);
   if (location) url.searchParams.set('location', location);
+  if (repeat !== 'none') url.searchParams.set('recur', GOOGLE_REPEAT_RULES[repeat]);
   const timeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   url.searchParams.set('stz', timeZone);
   url.searchParams.set('etz', timeZone);

@@ -33,13 +33,14 @@
           <div><span class="preview-label">行程名稱</span><strong id="preview-title"></strong></div>
           <div class="sr-only"><span>開始</span><span id="preview-time"></span></div>
           <p id="preview-note" class="preview-note"></p>
+          <p id="preview-warning" class="preview-warning" role="alert" hidden></p>
         </div>
         <div class="field-group google-time-field"><div class="time-field-heading"><label for="task-time">開始時間</label><span>預設 30 分鐘</span></div><input id="task-time" type="datetime-local" required><button id="use-parsed-time" class="text-button" type="button" hidden>改用輸入內容的時間</button></div>
         <details class="task-options">
           <summary>地點、備註與重複<span class="optional-label">選填</span></summary>
           <div class="details-grid">
             <div class="field-group"><label for="task-location">地點或地址</label><input id="task-location" maxlength="400" placeholder="例如：台北車站"></div>
-            <div class="field-group"><label for="task-repeat">希望重複</label><select id="task-repeat"><option value="none">一次（不重複）</option><option value="daily">每天</option><option value="weekly">每週</option><option value="weekdays">週一至週五</option><option value="monthly">每月</option><option value="yearly">每年</option></select><p class="field-hint">會帶入描述；仍需在 Google Calendar 設定重複規則。</p></div>
+            <div class="field-group"><label for="task-repeat">希望重複</label><select id="task-repeat"><option value="none">一次（不重複）</option><option value="daily">每天</option><option value="weekly">每週</option><option value="weekdays">週一至週五</option><option value="monthly">每月</option><option value="yearly">每年</option></select><p class="field-hint">會嘗試直接帶入 Google 的重複設定，也寫在描述；儲存前請在 Google 確認。</p></div>
             <div class="field-group google-notes"><label for="task-notes">備註</label><textarea id="task-notes" rows="2" maxlength="2000" placeholder="會議重點、購物清單"></textarea></div>
           </div>
         </details>
@@ -48,7 +49,7 @@
       <p id="app-status" class="google-app-status" role="status" aria-live="polite"></p>
       <aside id="google-handoff" class="google-handoff" hidden aria-labelledby="handoff-heading"><h3 id="handoff-heading">上一筆 Google 草稿</h3><p id="handoff-title"></p><p class="field-hint">尚未確認儲存。若已在 Google 儲存，請勿重複新增。</p><a id="google-retry" class="button calendar-button" target="_self">重新開啟這筆 Google 草稿</a></aside>
     </section>
-    <footer class="app-footer"><details class="usage-help"><summary>使用說明與範例</summary><div class="help-content"><div class="examples google-examples" aria-label="試用時間句子"><button type="button" data-example="十分鐘後提醒我喝水">十分鐘後喝水</button><button type="button" data-example="明天早上八點提醒我買早餐">明早買早餐</button></div><p>語音最長 120 秒，可提前停止；瀏覽器也可能提前結束。沒有反應時請點「重設語音」，或用手機鍵盤的麥克風。</p><p>會在同一分頁開啟 Google 草稿。確認行事曆、時間、重複與提醒後，請按「儲存」，再返回輸入下一筆。</p><p>內容只暫留本分頁，重新整理可能消失。本頁不新增本機待辦，舊版資料保持原樣；語音支援依瀏覽器與麥克風權限而異。</p></div></details></footer>
+    <footer class="app-footer"><details class="usage-help"><summary>使用說明與範例</summary><div class="help-content"><div class="examples google-examples" aria-label="試用時間句子"><button type="button" data-example="十分鐘後提醒我喝水">十分鐘後喝水</button><button type="button" data-example="明天早上八點提醒我買早餐">明早買早餐</button></div><p>語音最長 120 秒，可提前停止；瀏覽器也可能提前結束。沒有反應時請點「重設語音」，或用手機鍵盤的麥克風。</p><p>會在同一分頁開啟 Google 草稿。確認行事曆、時間、重複與提醒後，請按「儲存」，再返回輸入下一筆。</p><p>可以說「星期五下午三點」「15號早上十點」「每週一早上九點開會」。沒說日期而時間已過，會自動改成稍後或明天，請看預覽確認。</p><p>內容只暫留本分頁，重新整理可能消失；本頁不把資料存到任何伺服器。語音支援依瀏覽器與麥克風權限而異。</p></div></details></footer>
   </main>
 </body>
 </html>

@@ -23,6 +23,7 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
   let listening = false;
   let composing = false;
   let manualTime = false;
+  let manualRepeat = false;
   let navigating = false;
   let handedOff = false;
   let navigationTimer = null;
@@ -33,7 +34,7 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
   let handoffRevision = null;
   let handoffSnapshot = '';
 
-  function draftSnapshot() { return JSON.stringify([input.value, time.value, notes.value, location.value, repeat.value, manualTime]); }
+  function draftSnapshot() { return JSON.stringify([input.value, time.value, notes.value, location.value, repeat.value, manualTime, manualRepeat]); }
   function draftChanged() { draftRevision += 1; releaseNavigation(); status.textContent = ''; }
 
   function renderControls() {
@@ -61,11 +62,18 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
     $('#parse-preview').hidden = !raw;
     const parsed = parsedDraft();
     if (!manualTime) time.value = toDateTimeLocal(parsed.reminderAt);
+    // 句子裡說了「每天、每週一」等就自動選好重複；使用者自己改過下拉選單則不覆蓋。
+    if (!manualRepeat) repeat.value = parsed.repeat || 'none';
     $('#use-parsed-time').hidden = !manualTime;
     $('#preview-title').textContent = parsed.title || '請補上待辦事項';
     $('#preview-time').textContent = parsed.reminderAt ? formatter.format(new Date(parsed.reminderAt)).replace(/24:/, '00:') : '請補上開始時間';
     $('#preview-note').textContent = !parsed.reminderAt ? '還沒有時間，請在下方選擇。'
-      : manualTime ? '已使用你指定的時間。' : '依裝置時區；相對時間於送出時計算。';
+      : manualTime ? '已使用你指定的時間。'
+        : parsed.adjustment ? parsed.adjustment : '依裝置時區；相對時間於送出時計算。';
+    const warning = $('#preview-warning');
+    const pastWarning = !manualTime ? parsed.warning
+      : parsed.reminderAt && new Date(parsed.reminderAt).getTime() < now().getTime() ? '注意：你指定的開始時間已經過去了，請確認。' : '';
+    if (warning) { warning.textContent = pastWarning || ''; warning.hidden = !pastWarning; }
   }
 
   function clearDraft() {
@@ -74,7 +82,7 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
     handedOff = false;
     speech.reset('可以開始下一筆語音輸入。');
     input.value = ''; time.value = ''; notes.value = ''; location.value = ''; repeat.value = 'none';
-    manualTime = false; composing = false;
+    manualTime = false; manualRepeat = false; composing = false;
     updatePreview();
     input.focus();
   }
@@ -95,15 +103,16 @@ export function setupGoogleApp({ documentObject = globalThis.document, windowObj
   input.addEventListener('input', () => { draftChanged(); updatePreview(); });
   time.addEventListener('input', () => { manualTime = true; draftChanged(); updatePreview(); });
   time.addEventListener('change', () => { manualTime = true; draftChanged(); updatePreview(); });
-  for (const field of [notes, location, repeat]) {
+  for (const field of [notes, location]) {
     field.addEventListener('input', draftChanged); field.addEventListener('change', draftChanged);
   }
+  for (const type of ['input', 'change']) repeat.addEventListener(type, () => { manualRepeat = true; draftChanged(); });
   $('#use-parsed-time').addEventListener('click', () => { manualTime = false; draftChanged(); updatePreview(); time.focus(); });
   resetVoice.addEventListener('click', () => { speech.reset(); releaseNavigation(); });
   $('#clear-draft').addEventListener('click', () => { clearDraft(); status.textContent = '已清空本分頁草稿，可以輸入下一筆。'; });
   documentObject.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => {
     speech.reset('請確認內容後開啟 Google Calendar。');
-    draftChanged(); manualTime = false;
+    draftChanged(); manualTime = false; manualRepeat = false;
     input.value = button.dataset.example; updatePreview(); input.focus();
   }));
 

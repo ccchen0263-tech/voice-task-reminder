@@ -376,7 +376,43 @@ test('Google URL contains a 30-minute prefilled event and notes/location without
   assert.equal(url.searchParams.get('location'), '台北車站');
   assert.match(url.searchParams.get('details'), /第一行\n第二行/);
   assert.match(url.searchParams.get('details'), /每週.*確認重複規則後儲存/);
-  for (const key of ['calendarId', 'cid', 'src', 'recur', 'rrule']) assert.equal(url.searchParams.has(key), false);
+  assert.equal(url.searchParams.get('recur'), 'RRULE:FREQ=WEEKLY');
+  for (const key of ['calendarId', 'cid', 'src', 'rrule']) assert.equal(url.searchParams.has(key), false);
+});
+
+test('repeat choices map to RRULE values and "none" adds no recur parameter', () => {
+  const base = { title: '事件', reminderAt: '2030-01-02T00:00:00.000Z', originalInput: '事件' };
+  const expected = { daily: 'RRULE:FREQ=DAILY', weekly: 'RRULE:FREQ=WEEKLY', weekdays: 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', monthly: 'RRULE:FREQ=MONTHLY', yearly: 'RRULE:FREQ=YEARLY' };
+  for (const [repeat, rule] of Object.entries(expected)) {
+    assert.equal(new URL(createGoogleCalendarDraftURL({ ...base, repeat })).searchParams.get('recur'), rule);
+  }
+  for (const repeat of ['none', undefined, 'hourly', '__proto__']) {
+    assert.equal(new URL(createGoogleCalendarDraftURL({ ...base, repeat })).searchParams.has('recur'), false);
+  }
+});
+
+test('spoken repetition fills the repeat menu unless the user picked one; past explicit dates show a warning', () => {
+  const app = harness();
+  app.type('每週一早上九點開會');
+  assert.equal(app.get('#task-repeat').value, 'weekly');
+  assert.equal(app.get('#preview-title').textContent, '開會');
+  assert.equal(app.get('#preview-warning').hidden, true);
+  app.submit();
+  const url = new URL(app.navigations[0]);
+  assert.equal(url.searchParams.get('text'), '開會');
+  assert.equal(url.searchParams.get('recur'), 'RRULE:FREQ=WEEKLY');
+
+  const manual = harness();
+  manual.setField('#task-repeat', 'monthly');
+  manual.type('每天晚上十點提醒我吃藥');
+  assert.equal(manual.get('#task-repeat').value, 'monthly');
+
+  const past = harness();
+  past.type('今天凌晨十二點提醒我開會'); // 今天 00:00，任何時區都已經過去
+  assert.equal(past.get('#preview-warning').hidden, false);
+  assert.match(past.get('#preview-warning').textContent, /已經過去/);
+  past.type('明天早上七點提醒我開會');
+  assert.equal(past.get('#preview-warning').hidden, true);
 });
 
 test('Google URL rejects missing names and invalid times instead of silently creating all-day or now events', () => {
