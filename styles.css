@@ -261,6 +261,7 @@ textarea:focus, .field-group input:focus, .field-group select:focus { box-shadow
 .google-only .parse-preview { margin-top: 14px; padding: 11px 13px; border: 1px solid var(--border); }
 .google-only .preview-label { flex-basis: auto; white-space: nowrap; }
 .google-only .preview-note { font-size: 12px; margin-top: 4px; }
+.preview-warning { margin-top: 6px; padding: 6px 10px; border: 1px solid var(--warning-border, #e0b48a); border-radius: 8px; background: var(--warning-bg, #fff4e8); color: var(--warning-ink); font-size: 13px; font-weight: 600; }
 .google-time-field { margin-top: 16px; }
 .time-field-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 6px; font-size: 13px; }
 .time-field-heading label { font-weight: 650; }

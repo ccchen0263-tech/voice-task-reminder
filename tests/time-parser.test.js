@@ -73,7 +73,9 @@ test('全形輸入與分鐘時刻', () => {
   assert.equal(parseTaskInput('明天早上８：３０提醒我買早餐', now).reminderAt, localISO(2026, 10, 15, 8, 30));
   assert.equal(parseTaskInput('今天下午三點十五分提醒我打電話', now).reminderAt, localISO(2026, 10, 14, 15, 15));
   assert.equal(parseTaskInput('今天下午十五點三十分提醒我打電話', now).reminderAt, localISO(2026, 10, 14, 15, 30));
-  assert.equal(parseTaskInput('8:30提醒我吃早餐', now).reminderAt, localISO(2026, 10, 14, 8, 30));
+  // 10:20 時說「8:30」且沒講上午下午：今天上午已過，晚上 8:30 還沒到，所以用晚上。
+  assert.equal(parseTaskInput('8:30提醒我吃早餐', now).reminderAt, localISO(2026, 10, 14, 20, 30));
+  assert.equal(parseTaskInput('早上8:30提醒我吃早餐', now).reminderAt, localISO(2026, 10, 15, 8, 30));
 });
 
 test('相對時間變體', () => {
@@ -94,9 +96,88 @@ test('下午與上午 12 點、午夜與晚上 12 點', () => {
   assert.equal(parseTaskInput('12點提醒我吃饭', now).reminderAt, localISO(2026, 10, 14, 12));
 });
 
-test('今天已過時間與本週已過日期仍保留，不擅自改成明天或下週', () => {
-  assert.equal(parseTaskInput('今天早上八點提醒我開會', now).reminderAt, localISO(2026, 10, 14, 8));
-  assert.equal(parseTaskInput('這禮拜一早上九點提醒我開會', now).reminderAt, localISO(2026, 10, 12, 9));
+test('今天已過時間與本週已過日期仍保留，不擅自改成明天或下週，但會提出警告', () => {
+  const today = parseTaskInput('今天早上八點提醒我開會', now);
+  assert.equal(today.reminderAt, localISO(2026, 10, 14, 8));
+  assert.match(today.warning, /已經過去/);
+  const monday = parseTaskInput('這禮拜一早上九點提醒我開會', now);
+  assert.equal(monday.reminderAt, localISO(2026, 10, 12, 9));
+  assert.match(monday.warning, /已經過去/);
+  assert.equal(parseTaskInput('今天下午三點提醒我開會', now).warning, '');
+  assert.equal(parseTaskInput('這週五下午三點提醒我開會', now).warning, '');
+});
+
+test('沒說日期且時間已過：沒講上午下午就先試今天下午，否則改明天', () => {
+  const afternoon = new Date(2026, 9, 14, 16, 0); // 星期三 16:00
+  const three = parseTaskInput('3點提醒我開會', afternoon);
+  assert.equal(three.reminderAt, localISO(2026, 10, 15, 3)); // 下午 3 點也已過 → 明天 3 點
+  assert.equal(three.title, '開會');
+  assert.match(three.adjustment, /明天/);
+  assert.equal(three.warning, '');
+  assert.equal(parseTaskInput('九點半提醒我打電話', afternoon).reminderAt, localISO(2026, 10, 14, 21, 30));
+  assert.match(parseTaskInput('九點半提醒我打電話', afternoon).adjustment, /改為今天晚上 21:30/);
+  assert.equal(parseTaskInput('早上九點半提醒我打電話', afternoon).reminderAt, localISO(2026, 10, 15, 9, 30));
+  assert.equal(parseTaskInput('下午三點提醒我開會', afternoon).reminderAt, localISO(2026, 10, 15, 15));
+  assert.equal(parseTaskInput('15:00提醒我開會', afternoon).reminderAt, localISO(2026, 10, 15, 15));
+  assert.equal(parseTaskInput('晚上八點提醒我運動', afternoon).reminderAt, localISO(2026, 10, 14, 20));
+  assert.equal(parseTaskInput('晚上八點提醒我運動', afternoon).adjustment, '');
+  const lateNight = new Date(2026, 9, 14, 23, 0);
+  assert.equal(parseTaskInput('九點半提醒我打電話', lateNight).reminderAt, localISO(2026, 10, 15, 9, 30));
+  const yearEnd = new Date(2026, 11, 31, 22, 0);
+  assert.equal(parseTaskInput('八點提醒我出門', yearEnd).reminderAt, localISO(2027, 1, 1, 8));
+});
+
+test('單說星期幾：取下一個還沒過的那天', () => {
+  // now = 2026/10/14 星期三 10:20
+  for (const input of ['星期五下午三點提醒我交報告', '禮拜五下午三點提醒我交報告', '週五下午三點提醒我交報告', '周五下午3點交報告']) {
+    const parsed = parseTaskInput(input, now);
+    assert.equal(parsed.reminderAt, localISO(2026, 10, 16, 15), input);
+    assert.equal(parsed.title, '交報告', input);
+    assert.equal(parsed.warning, '', input);
+  }
+  assert.equal(parseTaskInput('星期一早上九點開會', now).reminderAt, localISO(2026, 10, 19, 9));
+  assert.equal(parseTaskInput('星期天早上九點開會', now).reminderAt, localISO(2026, 10, 18, 9));
+  assert.equal(parseTaskInput('禮拜三下午三點開會', now).reminderAt, localISO(2026, 10, 14, 15)); // 今天還沒到
+  assert.equal(parseTaskInput('禮拜三早上九點開會', now).reminderAt, localISO(2026, 10, 21, 9)); // 今天已過 → 下週三
+  assert.equal(parseTaskInput('星期五提醒我交報告', now).reminderAt, null); // 沒有鐘點
+});
+
+test('X號與X月X日：取下一個還沒過的日期', () => {
+  assert.equal(parseTaskInput('15號下午兩點提醒我繳費', now).reminderAt, localISO(2026, 10, 15, 14));
+  assert.equal(parseTaskInput('15號下午兩點提醒我繳費', now).title, '繳費');
+  assert.equal(parseTaskInput('5號早上十點提醒我繳費', now).reminderAt, localISO(2026, 11, 5, 10));
+  assert.equal(parseTaskInput('14號早上九點開會', now).reminderAt, localISO(2026, 11, 14, 9)); // 今天的 9 點已過
+  assert.equal(parseTaskInput('31號早上九點對帳', new Date(2026, 10, 2, 10)).reminderAt, localISO(2026, 12, 31, 9)); // 11 月沒有 31 號
+  assert.equal(parseTaskInput('12月1日8點提醒我開會', now).reminderAt, localISO(2026, 12, 1, 8));
+  assert.equal(parseTaskInput('十二月一號早上八點提醒我開會', now).title, '開會');
+  assert.equal(parseTaskInput('1月3號下午三點回診', now).reminderAt, localISO(2027, 1, 3, 15));
+  // 任務內容裡的「5號」不是日期
+  const battery = parseTaskInput('下午三點提醒我買5號電池', now);
+  assert.equal(battery.reminderAt, localISO(2026, 10, 14, 15));
+  assert.equal(battery.title, '買5號電池');
+});
+
+test('每天、每週X、每月、平日：移除字詞並回傳重複設定', () => {
+  const weekly = parseTaskInput('每週一早上九點開會', now);
+  assert.equal(weekly.title, '開會');
+  assert.equal(weekly.repeat, 'weekly');
+  assert.equal(weekly.reminderAt, localISO(2026, 10, 19, 9));
+  const weeklyWed = parseTaskInput('每個禮拜三下午三點提醒我倒垃圾', now);
+  assert.equal(weeklyWed.title, '倒垃圾');
+  assert.equal(weeklyWed.reminderAt, localISO(2026, 10, 14, 15));
+  const daily = parseTaskInput('每天晚上十點提醒我吃藥', now);
+  assert.deepEqual([daily.title, daily.repeat, daily.reminderAt], ['吃藥', 'daily', localISO(2026, 10, 14, 22)]);
+  const dailyPast = parseTaskInput('每天早上八點提醒我量血壓', now);
+  assert.deepEqual([dailyPast.title, dailyPast.repeat, dailyPast.reminderAt], ['量血壓', 'daily', localISO(2026, 10, 15, 8)]);
+  const monthly = parseTaskInput('每月5號早上十點提醒我繳房租', now);
+  assert.deepEqual([monthly.title, monthly.repeat, monthly.reminderAt], ['繳房租', 'monthly', localISO(2026, 11, 5, 10)]);
+  const weekdays = parseTaskInput('平日早上八點提醒我打卡', new Date(2026, 9, 16, 9)); // 星期五 9:00
+  assert.deepEqual([weekdays.title, weekdays.repeat, weekdays.reminderAt], ['打卡', 'weekdays', localISO(2026, 10, 19, 8)]);
+  assert.equal(parseTaskInput('每週一到週五早上八點打卡', now).repeat, 'weekdays');
+  assert.equal(parseTaskInput('每週一到週五早上八點打卡', now).title, '打卡');
+  assert.equal(parseTaskInput('每年十二月一號早上九點提醒我續約', now).repeat, 'yearly');
+  assert.equal(parseTaskInput('明天下午三點提醒我開會', now).repeat, null);
+  assert.equal(parseTaskInput('提醒我每週運動一次', now).title, '運動一次');
 });
 
 test('星期同義詞、本週一為起點與週日邊界', () => {
@@ -128,8 +209,9 @@ test('非法鐘點、分鐘、負數、小數與未知日期不能亂猜', () =>
     '-1小時後提醒我開會', '1.5小時後提醒我開會',
     '下個月三點提醒我開會', '下下週一九點提醒我開會',
     '這禮拜八下午三點提醒我開會', '明年三點提醒我開會',
-    '昨天早上八點提醒我開會', '12月1日8點提醒我開會',
-    '下週下午三點提醒我開會', '星期一下午三點提醒我開會',
+    '昨天早上八點提醒我開會', '2月30號8點提醒我開會',
+    '下週下午三點提醒我開會', '星期八下午三點提醒我開會',
+    '下個月5號三點提醒我開會', '12月三點提醒我開會',
     '今天8:30:40提醒我開會', '明早8:30:45提醒我買早餐',
     '明早3.5點提醒我買早餐',
   ];

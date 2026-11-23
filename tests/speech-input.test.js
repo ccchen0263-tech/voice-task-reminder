@@ -208,7 +208,9 @@ test('the second task receives a fresh recognizer and its own final text', () =>
   second.onend();
   assert.equal(app.input.value, '明天早上八點提醒我買早餐');
   assert.equal(app.parsed.title, '買早餐');
-  assert.equal(app.parsed.reminderAt, '2026-10-14T00:00:00.000Z');
+  // 依執行機器的本機時區計算「明天早上八點」，任何時區都能通過。
+  const base = new Date('2026-10-13T08:00:00+08:00');
+  assert.equal(app.parsed.reminderAt, new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1, 8).toISOString());
 });
 
 test('all delayed callbacks from an old recognizer leave the active session untouched', () => {
